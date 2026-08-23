@@ -151,7 +151,9 @@ N/A — no linter configured for this Apps Script project (no `.eslintrc`/`.gola
 
 #### E6. Branch HEAD + Push state
 
-Recorded after commit — see Git commit SHA below (this section is updated post-commit as part of the same run-phase evidence entry).
+- Commit SHA: `1288c9a4699738044fdf2074cac075c21366318e`
+- `git push origin HEAD:main` → `5587a35..1288c9a  HEAD -> main` (fast-forward, success)
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before push): `0  1` (clean, local ahead by 1 — this commit)
 
 #### E7. Blocker Report
 
