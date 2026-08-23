@@ -267,6 +267,28 @@ function deleteAssetType(name, force) {
   return getPortfolioData();
 }
 
+// ── 자산 심볼 등록/수정 (웹앱용) ─────────────────────────
+function setAssetSymbol(name, symbol) {
+  const trimmedName   = String(name).trim();
+  const trimmedSymbol = String(symbol == null ? '' : symbol).trim();
+
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ASSET_SHEET_NAME);
+  if (sheet) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const vals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < vals.length; i++) {
+        if (String(vals[i][0]).trim() === trimmedName) {
+          sheet.getRange(i + 2, 2).setValue(trimmedSymbol);
+          return getPortfolioData();
+        }
+      }
+    }
+  }
+  return JSON.stringify({ error: '존재하지 않는 자산입니다.' });
+}
+
 // ── B열 드롭다운 갱신 (내부 헬퍼) ──────────────────────
 // @MX:ANCHOR fan_in=3 — addAssetType/deleteAssetType/initSheet 모두 의존
 function updateAssetDropdown_() {

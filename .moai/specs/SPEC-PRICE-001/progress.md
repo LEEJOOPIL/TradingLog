@@ -230,6 +230,74 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 
 **Residual-risk**: Static-trace verification only — not exercised against the live Google Sheets API. Untested edge case: an `AssetTypes` sheet with data rows present (`lastRow >= 2`) but every row's A-column name is blank/whitespace-only. In this case `readAssetRows_()` returns a non-empty array (blank-name entries included), so `getAssetTypes()`'s `!rows.length` guard does NOT fire and it falls through to `.map().filter(truthy)`, returning `[]` — this matches the ORIGINAL pre-M2 behavior exactly (verified above), so no regression, but the pathological case has not been exercised live. `assetSymbols` in `getPortfolioData()` filters out blank-name rows via `if (r.name)` before adding to the map, so no `""` key can ever be added.
 
+### M3 — 심볼 등록·수정 경로 (cycle_type=ddd, DDD ANALYZE-PRESERVE-IMPROVE)
+
+**ANALYZE**: `AssetTypes` 시트 B열(바이낸스 심볼)에 값을 쓰는 서버 경로가 아직 없다. `Index.html`의 자산 관리 패널(`renderAssetManager()`)은 자산명 태그 + 삭제 버튼만 렌더한다. 사용자 확정 결정(plan.md §F M3): 심볼 편집 UI는 **인라인 입력 필드**(`prompt()` 기각), 서버 계약은 `setAssetSymbol(name, symbol)` 신규 함수.
+
+**PRESERVE**: `addAssetType(name)`, `deleteAssetType(name, force)`, `getAssetTypes()`, `setAssetPrice(cat, price)` 4개 함수 시그니처·동작 전부 불변. 기존 자산 관리 패널의 추가/삭제 동작, CSS 클래스명(`asset-tag`/`asset-del`/`asset-add-row`/`price-input`/`btn`/`btn-apply`) 전부 유지. `updateAssetDropdown_()`는 이 마일스톤에서 호출하지 않음 — 심볼 수정은 B열 자산 목록(A열) 자체를 바꾸지 않으므로 드롭다운 갱신 대상이 아님.
+
+**IMPROVE (원자적 변경 1건, 단일 패키지 `Code.gs` + `Index.html` 내)**:
+1. `Code.gs`: `setAssetSymbol(name, symbol)` 신규 — `AssetTypes` 시트 A열을 `deleteAssetType`과 동일한 방식(정확 trim 일치, 대소문자 구분)으로 순회해 일치하는 행을 찾고, 해당 행 B열에 trim된 심볼 값을 기록한 뒤 `getPortfolioData()`를 반환. 일치하는 행이 없으면(또는 `AssetTypes` 시트 자체가 없으면) 시트를 전혀 변경하지 않고 `{error: '존재하지 않는 자산입니다.'}` 문자열을 반환. `updateAssetDropdown_()` 미호출.
+2. `Index.html`: `assetSymbolsMap` 전역 변수 신규(`assetTypesList`와 나란히 선언) — `onData()`에서 `d.assetSymbols || {}`로 갱신.
+3. `Index.html`: `renderAssetManager()` 재구성 — 기존 한 줄 태그 나열(`tags.join(' ')`) 대신 자산별 `.asset-row`(태그+삭제 버튼, 심볼 인라인 입력 필드, 저장 버튼, 인라인 오류 슬롯)를 렌더. `escAttr`/`escJs`로 XSS 방지, 기존 관례와 동일.
+4. `Index.html`: `saveAssetSymbol(name)` 신규 — 입력값 trim → 저장 버튼 비활성화(진행 상태 표시, `addAsset`/`applyAssetPrice`의 기존 disable/재활성 패턴과 동일) → `google.script.run.setAssetSymbol(name, symbolValue)` 호출. 성공 시 `{error}`면 인라인 메시지 표시 + 버튼 재활성(입력값 유지), 그 외에는 `onData(json)`으로 전체 UI 재렌더. RPC 실패 시 `addAsset`의 실패 핸들러와 동일하게 인라인 메시지 표시 + 버튼 재활성.
+5. CSS: `.asset-row`(`.price-row` 패턴 참고 flex 레이아웃), `.symbol-input`(`.price-input` 스타일 재사용, 폭만 축소), `.btn-save-symbol`(`.btn-apply`의 녹색 스타일 재사용), `.symbol-msg`(`#assetMgrMsg`와 동일한 소형 적색 텍스트) 추가.
+
+#### AC PASS/FAIL 매트릭스
+
+| AC | 대상 요구사항 | 상태 | 검증 방법 | 실제 결과 |
+|----|--------------|------|-----------|-----------|
+| AC-005 (심볼 등록) | REQ-007 | PASS (정적 추적) | 코드 논리 수동 추적 | `XRP`가 심볼 없이 존재하는 상태에서 `setAssetSymbol('XRP', 'XRPUSDT')` 호출 시 A열 순회에서 `'XRP'.trim() === 'XRP'` 매치 → B열에 `'XRPUSDT'` 기록 → `getPortfolioData()` 반환(신규 `assetSymbols.XRP === 'XRPUSDT'` 포함). "값 가져오기" 버튼 노출(REQ-014)은 M5 스코프이므로 이 마일스톤에서는 미해당 — `assetSymbolsMap`을 populate하는 데이터 경로까지만 검증 |
+| AC-006 (존재하지 않는 자산) | REQ-007 | PASS (정적 추적) | 코드 논리 수동 추적 — 도달 불가 경로 확인 | `setAssetSymbol('없는자산', 'BTCUSDT')` 호출 시 A열 전체 순회에서 일치 행 없음 → `for` 루프가 매치 없이 종료 → `sheet.getRange(...).setValue(...)` 라인은 `if (String(vals[i][0]).trim() === trimmedName)` 블록 내부에만 존재하므로 이 실행 경로에서 **구조적으로 도달 불가** → 함수 최종 라인 `return JSON.stringify({ error: '존재하지 않는 자산입니다.' })`만 실행되어 시트 변경 없이 `{error}` 반환 |
+
+**Gaps (미검증)**: M1/M2와 동일한 사유로 Google Apps Script 실행 환경 없이는 실제 스프레드시트 API 호출을 실행할 수 없어 **정적 코드 추적만으로 검증**했다. 웹앱 브라우저 실기 조작(인라인 입력 필드에 심볼 입력 → 저장 클릭 → 시트 B열 반영 확인, `없는자산`류 케이스의 인라인 오류 표시 확인)은 사용자의 Google 계정 및 배포된 스크립트 접근이 필요하므로 이 세션에서는 수행 불가 — 사용자의 수동 인수 테스트 통과로 이관.
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|----------------------|----------------|
+| setAssetSymbol matches AssetTypes A-column via exact trim comparison (same convention as deleteAssetType) | PASS (static) | `grep -n "String(vals\[i\]\[0\]).trim()" Code.gs` | 2 matches — one inside `deleteAssetType` (pre-existing), one inside `setAssetSymbol` (new); both use the identical `String(x).trim() === String(y).trim()` comparison form |
+| setAssetSymbol does not call updateAssetDropdown_() | PASS (static) | `awk '/^function setAssetSymbol/,/^}/' Code.gs \| grep -c 'updateAssetDropdown_'` | `0` |
+| setAssetSymbol success path returns getPortfolioData() passthrough; failure path returns {error} string; sheet unmodified on failure | PASS (static) | Manual trace of `setAssetSymbol` control flow (see M3 IMPROVE item 1 above) | Confirmed structurally — `setValue()` call is lexically nested inside the loop's match-branch only; the failure return is the function's final statement, reachable only when the loop completes with no match |
+| addAssetType/deleteAssetType/getAssetTypes/setAssetPrice signatures byte-identical | PASS (static) | `git diff -- Code.gs \| grep -E '^[+-]function (addAssetType\|deleteAssetType\|getAssetTypes\|setAssetPrice)\('` | (no output — zero matches, confirming no signature-line diff for any of the four functions) |
+| Only Code.gs + Index.html touched (plus this progress.md) | PASS | `git status --short` | ` M Code.gs` / ` M Index.html` only (before this progress.md edit) |
+
+#### E2. Cross-Platform Build result
+
+N/A — Google Apps Script has no build step; `.gs`/`.html` files are plain JavaScript with no compilation. Not applicable to this project (same as M1/M2).
+
+#### E3. Coverage measurement
+
+N/A — no automated test framework exists in this project (plan.md §A "development method": Apps Script 에디터 수동 실행 + 웹앱 실기 확인).
+
+#### E4. Subagent Boundary Grep
+
+```
+$ grep -n 'AskUserQuestion' Code.gs Index.html
+(no output — no matches)
+```
+
+#### E5. Lint Status
+
+N/A — no linter configured for this Apps Script project (no `.eslintrc`/`.golangci.yml` equivalent present). Manual balance check performed instead: `python3` brace/paren-count diff on `Code.gs` and the `<script>` block of `Index.html` — both files balanced (0 delta) after the edit.
+
+#### E6. Branch HEAD + Push state
+
+- Base commit (pre-M3, `origin/main` tip at session start): `631acb96725e51beaddfc951c4bd7083e9147eaa`
+- Commit SHA: (see `git log --format=%H -1` after commit — recorded in the M3 commit itself; this progress.md is part of that same commit)
+- Push: `git push origin HEAD:main` (see commit-time result)
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before this edit): `0  0` (synced)
+
+#### E7. Blocker Report
+
+None — no blockers encountered. Files touched: `Code.gs` (new `setAssetSymbol`), `Index.html` (inline symbol input UI + `saveAssetSymbol` + CSS), and this `progress.md` (§E.2 M3 evidence). No other file modified, per `git status --short` showing only `Code.gs` / `Index.html` before this progress.md edit.
+
+#### E8. RED Failure Output (N/A — cycle_type=ddd, not tdd)
+
+Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this project has no automated test framework, so no RED-GREEN-REFACTOR cycle applies. Verification is DDD-style: PRESERVE (4 existing signatures unchanged, existing panel behavior/CSS classes unchanged) and IMPROVE (new `setAssetSymbol` server function + inline symbol-edit UI) both confirmed by code trace — deferred to the user's Apps Script editor + browser manual acceptance pass per plan.md §E.
+
+**Residual-risk**: Static-trace verification only — not exercised against the live Google Sheets API or a browser. Untested: whether the inline `symbol-input`/`btn-save-symbol` styling visually integrates acceptably with the existing navy/green palette (a subjective judgment deferred to the user); whether an asset name containing HTML-significant characters (`&`, `'`, `"`, `<`, `>`) round-trips correctly through `escAttr`/`escJs` into the `id="sym-<name>"` DOM id and back through `document.getElementById('sym-' + name)` in `saveAssetSymbol` — this follows the exact pre-existing pattern used by `pi-<cat>`/`applyAssetPrice`, so no new risk is introduced, but it was not exercised live in this session.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_

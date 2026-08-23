@@ -342,6 +342,24 @@
       flex-wrap: wrap;
       margin-top: 4px;
     }
+    .asset-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    .symbol-input {
+      width: 140px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.82rem;
+    }
+    .symbol-input:focus { outline: none; border-color: var(--navy); }
+    .btn-save-symbol { background: #2E6B3E; padding: 5px 11px; font-size: 0.78rem; }
+    .btn-save-symbol:hover { background: #3a8a50; }
+    .symbol-msg { font-size: 0.8rem; color: var(--neg); margin-left: 4px; }
 
     @media (max-width: 768px) {
       .summary-grid { grid-template-columns: repeat(2, 1fr); }
@@ -468,6 +486,7 @@
   var portfolioRows = [];
   var editingSheetRow = null;
   var assetTypesList = [];
+  var assetSymbolsMap = {};
 
   /* ── HTML 표시용 이스케이프 ── */
   function escAttr(s) {
@@ -636,6 +655,7 @@
   function onData(json) {
     var d = JSON.parse(json);
     assetTypesList = d.assetTypes || [];
+    assetSymbolsMap = d.assetSymbols || {};
     renderSummary(d.summary);
     renderTable(d.rows);
     renderAssetManager();
@@ -819,19 +839,53 @@
     var body = document.getElementById('assetMgrBody');
     if (!body) return;
 
-    var tags = assetTypesList.map(function(a) {
-      return '<span class="asset-tag">' +
-        escAttr(a) +
-        '<button class="asset-del" onclick="deleteAsset(\'' + escJs(a) + '\')" title="삭제">×</button>' +
-        '</span>';
-    }).join(' ');
+    var rows = assetTypesList.map(function(a) {
+      var symbol = assetSymbolsMap.hasOwnProperty(a) ? assetSymbolsMap[a] : '';
+      return '<div class="asset-row">' +
+        '<span class="asset-tag">' +
+          escAttr(a) +
+          '<button class="asset-del" onclick="deleteAsset(\'' + escJs(a) + '\')" title="삭제">×</button>' +
+        '</span>' +
+        '<input type="text" class="symbol-input" id="sym-' + escAttr(a) + '" ' +
+          'value="' + escAttr(symbol) + '" placeholder="바이낸스 심볼 (예: BTCUSDT)">' +
+        '<button class="btn btn-save-symbol" onclick="saveAssetSymbol(\'' + escJs(a) + '\')">저장</button>' +
+        '<span id="sym-msg-' + escAttr(a) + '" class="symbol-msg"></span>' +
+      '</div>';
+    }).join('');
 
-    body.innerHTML = tags +
+    body.innerHTML = rows +
       '<div class="asset-add-row">' +
         '<input type="text" id="assetNewName" class="price-input" placeholder="새 자산명" style="width:140px">' +
         '<button class="btn btn-add" onclick="addAsset()" style="padding:5px 12px;font-size:0.82rem;">추가</button>' +
         '<span id="assetMgrMsg" style="font-size:0.8rem;color:var(--neg);margin-left:4px;"></span>' +
       '</div>';
+  }
+
+  /* ── 자산 심볼 저장 ── */
+  function saveAssetSymbol(name) {
+    var input = document.getElementById('sym-' + name);
+    if (!input) return;
+    var symbolValue = input.value.trim();
+    var msg = document.getElementById('sym-msg-' + name);
+    if (msg) msg.textContent = '';
+    var btn = input.parentElement.querySelector('.btn-save-symbol');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+    google.script.run
+      .withSuccessHandler(function(json) {
+        var d = JSON.parse(json);
+        if (d.error) {
+          if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+          if (msg) msg.textContent = d.error;
+          return;
+        }
+        onData(json);
+      })
+      .withFailureHandler(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+        if (msg) msg.textContent = '저장 실패: ' + e.message;
+      })
+      .setAssetSymbol(name, symbolValue);
   }
 
   /* ── 모달 자산구분 드롭다운 동적 갱신 ── */
