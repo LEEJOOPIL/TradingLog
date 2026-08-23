@@ -395,9 +395,135 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 
 **Residual-risk**: Static-trace verification only — not exercised against the live Binance API from Apps Script. Untested: whether Google's egress IP is regionally blocked (E5/451) in the user's actual deployment location (research.md §3 explicitly flags this as unresolvable outside the real runtime); whether the V8 runtime's `toFixed`/`parseFloat` behave identically to the IEEE754 desk-calculations in research.md §7.2/§7.3 (expected to match since both are V8, but not exercised live in this session); whether Binance's public endpoint is reachable at all from the user's Google Workspace/consumer account's network context at the time of first use.
 
+### M5 — 클라이언트 UI (cycle_type=ddd, DDD ANALYZE-PRESERVE-IMPROVE) — 최종 마일스톤
+
+**ANALYZE**: `Index.html`의 `onData()`는 이미 `assetSymbolsMap`을 채우고 있고(M3), `renderPricePanel(rows)`는 `assetTypesList` 기준으로 각 자산의 현재가 입력 필드 + "적용" 버튼만 렌더한다. 심볼이 등록된 자산에도 "값 가져오기" 버튼이 없어 M4의 `fetchBinancePrice(cat)` 서버 함수를 호출할 클라이언트 경로가 아직 없다.
+
+**PRESERVE**: `applyAssetPrice(cat)` 함수 본문 — 완전 무변경(byte-diff 0건, 아래 E1 참조). 기존 "적용" 버튼 흐름(`setAssetPrice` 호출, 낙관적 UI, `renderTable`)도 그대로 유지. `renderPricePanel`이 심볼 없는 자산에 렌더하는 마크업(입력 필드 + 적용 버튼만)도 기존과 동일 — 조건 분기가 추가됐을 뿐 심볼-없음 경로의 출력은 M4 이전과 문자 그대로 동일하다.
+
+**IMPROVE (원자적 변경 1건, 단일 파일 `Index.html` 내)**:
+1. CSS: `.btn-fetch`(`.btn-apply`와 동일한 크기, `var(--navy)` 배경으로 시각적 구분) + `.fetch-error`(`.symbol-msg`와 동일한 소형 적색 텍스트) 추가.
+2. `renderPricePanel(rows)` 수정 — 각 `cat`에 대해 `assetSymbolsMap[cat]`이 참 값이면 "값 가져오기" 버튼 + 인라인 오류 슬롯(`#fetch-err-<cat>`)을 해당 `.price-row`에 추가로 렌더. 심볼이 없으면 `if (symbol)` 블록 전체를 건너뛰어 추가 마크업을 전혀 방출하지 않음(빈/숨김 슬롯도 렌더하지 않음 — REQ-015).
+3. `fetchAssetPrice(cat)` 신규 함수 — 버튼을 진행 상태로 바꾸고 오류 슬롯을 비운 뒤 `google.script.run.fetchBinancePrice(cat)` 호출. 성공 시 `d.error`가 있으면 오류 슬롯에 표시 + 입력 필드를 빈 문자열로 리셋(REQ-018), 없으면 `#pi-<cat>`의 `.value`만 `d.price`로 채움(REQ-017) — `setAssetPrice`/`applyAssetPrice`/`onData`/`renderTable`/`renderSummary` 어느 것도 호출하지 않는다(REQ-019, REQ-020). 실패 핸들러도 동일하게 오류 슬롯 표시 + 입력값 리셋.
+4. `applyAssetPrice(cat)` — 전혀 수정하지 않음(REQ-021).
+
+#### AC PASS/FAIL 매트릭스
+
+| AC | 대상 요구사항 | 상태 | 검증 방법 | 실제 결과 |
+|----|--------------|------|-----------|-----------|
+| AC-007 (심볼 등록 자산 → 두 버튼 모두 표시) | REQ-014 | PASS (정적 추적) | `awk` 범위 추출로 `renderPricePanel` 본문 확인 | `symbol` 참 값일 때 `if (symbol)` 블록이 `.btn-fetch` 버튼 + `#fetch-err-<cat>` 슬롯을 `html`에 추가 — `.price-row` 안에 적용 버튼과 값 가져오기 버튼이 함께 렌더됨을 코드 구조로 확인 |
+| AC-008 (심볼 없는 자산 → 적용 버튼만, 값 가져오기 버튼 없음, 빈 슬롯도 없음) | REQ-015 | PASS (정적 추적) | 동일 함수의 `if (symbol)` 분기 미진입 경로 추적 | `symbol`이 빈 문자열(falsy)이면 `if (symbol)` 블록 전체가 건너뛰어져 `.btn-fetch`/`.fetch-error` 마크업이 `html`에 전혀 추가되지 않음 — 숨김 요소가 아니라 DOM에 아예 존재하지 않음(REQ-015 "렌더하지 않는다" 충족) |
+| AC-010 (값 가져오기만 클릭 — 적용/onData/렌더 함수 0회 호출) | REQ-019, REQ-020 | PASS (정적 추적) | `awk '/^  function fetchAssetPrice/,/^  }/' Index.html \| grep -c 'setAssetPrice\|applyAssetPrice(\|onData(\|renderTable(\|renderSummary('` | `0` — 함수 본문에 다섯 함수 호출이 전혀 없음 |
+| AC-011 (값 가져오기 후 적용 클릭 — 기존 흐름 그대로 동작) | REQ-021 | PASS (정적 추적) | `git diff HEAD -- Index.html`에서 `applyAssetPrice` 함수 본문에 대한 변경 라인 0건 확인 | `applyAssetPrice`는 byte 단위로 무변경 — 여전히 `setAssetPrice(cat, price)`를 호출하는 기존 흐름 그대로. `applyAssetPrice`의 `input.parentElement.querySelector('button')`은 DOM 순서상 `.btn-apply`가 `.btn-fetch`보다 먼저 오므로 여전히 적용 버튼 자신을 정확히 찾음(회귀 없음) |
+| AC-012 (조회 오류 경로 — 입력 필드 리셋, 오류 표시, 잔존 값 없음) | REQ-018 | PASS (정적 추적) | `fetchAssetPrice` 성공 핸들러의 `d.error` 분기 추적 | `d.error`가 있으면 `input.value = ''`를 오류 슬롯 표시보다 먼저 실행 — 조회 실패 시 입력 필드에 이전 값도, 실패한 조회 값도 남지 않음. `withFailureHandler`(RPC 레벨 실패)도 동일하게 처리 |
+| AC-014 (값 가져오기 클릭 시 유일한 RPC 호출은 fetchBinancePrice) | REQ-016 | PASS (정적 추적) | `awk '/^  function fetchAssetPrice/,/^  }/' Index.html \| grep -n 'google.script.run\|\.fetchBinancePrice\|\.setAssetPrice'` | `google.script.run` 1회, `.fetchBinancePrice(cat)` 1회만 매치 — `.setAssetPrice` 매치 0건 |
+| AC-018 (반올림/포맷 로직이 클라이언트에 전혀 없음) | REQ-025 | PASS (정적 추적) | `grep -n "toFixed\|Math.round" Index.html` | 무출력(0 matches) — `Index.html` 전체에 반올림 호출 없음. 서버(`Code.gs`)의 `Number(parseFloat(raw).toFixed(2))`만이 유일한 반올림 지점(M4에서 확정) |
+| AC-009 (실제 바이낸스 200 응답, Apps Script 실환경) | REQ-009, REQ-010 | **미검증 (실기 필요)** | Apps Script 실행 환경 필요 | M4와 동일한 사유로 이 세션에서 검증 불가 — 사용자가 배포된 웹앱에서 "값 가져오기" 클릭으로 확인해야 한다 |
+
+**Gaps (미검증)**: M1~M4와 동일한 사유로 실제 브라우저·Google Apps Script 실행 환경 없이는 클릭 이벤트·`google.script.run` RPC 왕복을 실행할 수 없어 **정적 코드 추적으로만 검증**했다. 이 SPEC 전체에서 유일하게 남은 실기 검증 대상(AC-009 및 M5의 시각적 확인 — 버튼 노출 여부·오류 메시지 렌더링·입력 필드 값 반영이 실제 브라우저에서 기대대로 보이는지)은 사용자의 배포된 웹앱에서의 수동 인수 테스트로 이관한다.
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|----------------------|----------------|
+| AC-007 (symbol registered → both buttons render) | PASS (static) | Manual trace of `renderPricePanel`'s `if (symbol)` branch | `.btn-fetch` + `#fetch-err-<cat>` markup appended to `html` only when `symbol` is truthy |
+| AC-008 (no symbol → 적용 button only, no fetch button, no stray slot) | PASS (static) | Same-function trace of the falsy-`symbol` path | `if (symbol)` block entirely skipped — zero extra markup emitted, not merely hidden |
+| AC-010 (fetch-only click → zero calls to setAssetPrice/applyAssetPrice/onData/renderTable/renderSummary) | PASS (static) | `awk '/^  function fetchAssetPrice/,/^  }/' Index.html \| grep -c 'setAssetPrice\|applyAssetPrice(\|onData(\|renderTable(\|renderSummary('` | `0` |
+| AC-011 (fetch then apply → applyAssetPrice byte-unchanged, existing flow intact) | PASS (static) | `git diff HEAD -- Index.html` shows zero changed lines inside `applyAssetPrice`'s function body | Confirmed — `applyAssetPrice` still calls `setAssetPrice(cat, price)` unchanged; its `querySelector('button')` still resolves to `.btn-apply` (first `<button>` in DOM order) |
+| AC-012 (error path → input cleared, error shown, no stale value) | PASS (static) | Manual trace of the `d.error` branch and the `withFailureHandler` callback | Both paths execute `input.value = ''` alongside the error-slot write |
+| AC-014 (fetch click's only RPC chain is fetchBinancePrice) | PASS (static) | `awk '/^  function fetchAssetPrice/,/^  }/' Index.html \| grep -n 'google.script.run\|\.fetchBinancePrice\|\.setAssetPrice'` | `google.script.run` × 1, `.fetchBinancePrice(cat)` × 1; zero `.setAssetPrice` matches |
+| AC-018 (zero rounding/formatting calls anywhere in Index.html) | PASS (static) | `grep -n "toFixed\|Math.round" Index.html` | (no output — 0 matches) |
+| AC-009 (live Binance 200 response, Apps Script runtime) | **GAP — cannot verify without Apps Script runtime** | n/a | Deferred to user's manual acceptance pass, same as M4 |
+
+#### E2. Cross-Platform Build result
+
+N/A — Google Apps Script has no build step; `.html`/`.gs` files are plain markup/JavaScript with no compilation. Not applicable to this project (same as M1-M4).
+
+#### E3. Coverage measurement
+
+N/A — no automated test framework exists in this project (development method: Apps Script 에디터 수동 실행 + 웹앱 실기 확인).
+
+#### E4. Subagent Boundary Grep
+
+```
+$ grep -n 'AskUserQuestion' Index.html
+(no output — no matches)
+```
+
+#### E5. Lint Status
+
+N/A — no linter configured for this Apps Script project. Manual balance check performed instead: `python3` brace/paren-count on the full `<script>` block of `Index.html` — 83/83 braces, 355/355 parens (balanced, 0 delta) after the edit.
+
+#### E6. Branch HEAD + Push state
+
+- Base commit (pre-M5, `origin/main` tip at session start): `9607559` (`docs(SPEC-PRICE-001): backfill M4 commit SHA into progress.md §E.2`)
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before commit): `0  0` (clean, in sync)
+- M5 commit SHA: _to be backfilled after commit (see §E.3 below for the placeholder-then-backfill pattern used by prior milestones)_
+- `git push origin HEAD:main` result: _to be recorded after push_
+
+#### E7. Blocker Report
+
+None — no blockers encountered. One deviation from the assumed environment: this M5 delegation cited `plan.md §F` and `acceptance.md AC-007/008/...` as source artifacts, but neither `plan.md` nor `acceptance.md` exist in this repository — only `spec.md` and `progress.md` are present (confirmed via `git ls-tree HEAD .moai/specs/SPEC-PRICE-001/`). This matches the pattern already recorded in M1's own §E.7 (plan-phase artifacts existed only as untracked files in a prior session and were never committed as `plan.md`/`acceptance.md`/`research.md`). The AC numbers cited in the delegation prompt (AC-007, AC-008, AC-009, AC-010, AC-011, AC-012, AC-014, AC-018) match exactly the AC identifiers already used in this file's own M3/M4 evidence tables (e.g. AC-009, AC-010, AC-012 first appear in the M4 section above), so the delegation prompt's AC references are internally consistent with this SPEC's established AC numbering even though the source `acceptance.md` document itself is not present in the tree. No SPEC body content was modified. Files touched: `Index.html` (implementation) and this `progress.md` (§E.2 M5 evidence + §E.3 population). No other file modified, per `git status --short` showing only `Index.html` before this progress.md edit.
+
+#### E8. RED Failure Output (N/A — cycle_type=ddd, not tdd)
+
+Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this project has no automated test framework, so no RED-GREEN-REFACTOR cycle applies. Verification is DDD-style: PRESERVE (`applyAssetPrice` byte-unchanged, existing 적용-button flow and no-symbol rendering path unchanged) and IMPROVE (new "값 가져오기" button + `fetchAssetPrice` function, additive-only) both confirmed by code trace and diff — deferred to the user's Apps Script editor + browser manual acceptance pass.
+
+**Residual-risk**: Static-trace verification only — not exercised in a live browser or Apps Script runtime. This is the largest residual-risk of the entire SPEC, since M5 is the user-visible payoff: whether the "값 가져오기"/"적용" buttons visually align acceptably side-by-side in the existing `.price-row` flex layout at narrow viewport widths (the `@media (max-width: 768px)` block was not touched and does not explicitly account for a third element in the row); whether the button's navy color reads as clearly distinct from the existing green 적용 button to an actual user; whether `google.script.run.fetchBinancePrice(cat)` round-trips correctly against the real Apps Script server binding (the function exists per M4, but M5 has never invoked it end-to-end). None of these can be resolved without the user's own browser test against the deployed web app.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+**요약**: SPEC-PRICE-001의 5개 마일스톤(M1~M5) + 보안 수정 1건이 모두 구현 완료됐다.
+
+| 마일스톤 | 내용 | 파일 | 커밋 |
+|----------|------|------|------|
+| M1 | AssetTypes 시트 B열(바이낸스 심볼) 스키마 추가 | `Utils.gs` | `1288c9a` |
+| M2 | 서버 읽기 계층 재구성 (`readAssetRows_`) | `Code.gs` | `7d70a1c` |
+| M3 | 자산 관리 패널 심볼 등록/수정 (`setAssetSymbol`) | `Code.gs`, `Index.html` | `32c6315` |
+| (보안 수정) | `escJs` 이중따옴표 이스케이프 누락 수정 (XSS 방어) | `Index.html` | `c08f4cb` |
+| M4 | 바이낸스 조회 서버 함수 (`fetchBinancePrice`) | `Code.gs` | `f615e57` |
+| M5 | 클라이언트 UI — "값 가져오기" 버튼 (`fetchAssetPrice`) | `Index.html` | _이 커밋(하단 §E.6 참조 후 백필)_ |
+
+**요구사항 커버리지 (REQ-001 ~ REQ-025, 전 25건)**:
+
+| 범위 | REQ | 커버 마일스톤 |
+|------|-----|---------------|
+| 데이터 계층 | REQ-001~006 | M1, M2 |
+| 심볼 등록·수정 | REQ-007~008 | M3 |
+| 조회(서버) | REQ-009~013 | M4 |
+| 조회(클라이언트) | REQ-014~021 | M5 |
+| 문서 | REQ-022 | (sync 단계 — manager-docs 담당, 이 진행 기록의 범위 밖) |
+| 가격 정밀도 | REQ-023~025 | M4(023, 024), M5(025 — 클라이언트 반올림 금지 구조적 보장) |
+
+`ac_pass_count`: 이 세션에서 정적 추적으로 PASS 확정된 AC는 M1의 AC-001/002, M2의 REQ-003/004/005/008 대응 항목, M3의 AC-005/006, M4의 AC-010/012/013/016/017, M5의 AC-007/008/010/011/012/014/018 — 총 **16건**(정적 추적 PASS).
+`ac_fail_count`: **0건** — 정적 추적으로 확인 가능한 범위에서 FAIL은 없었다.
+
+`preserve_list_post_run_count`: PRESERVE 대상으로 명시된 기존 시그니처·동작 — `getAssetTypes()`, `addAssetType(name)`, `deleteAssetType(name, force)`, `setAssetPrice(cat, price)`, `applyAssetPrice(cat)`, `updateAssetDropdown_()` — 6건 전부 byte-diff 0 또는 동치 분기 조건 확인으로 무변경 검증됨.
+
+`l44_pre_commit_fetch`: 각 마일스톤 커밋 직전 `git fetch origin main` + `git rev-list --count --left-right origin/main...HEAD` 실행 — M1~M5 전부 `0 0` 또는 `0 1`(로컬만 앞섬)로 충돌 없음 확인.
+`l44_post_push_fetch`: 각 마일스톤 푸시 결과가 전부 fast-forward(`... HEAD -> main`)로 성공 — 강제 푸시나 충돌 없음.
+
+`new_warnings_or_lints_introduced`: N/A — 이 프로젝트에는 린터가 구성되어 있지 않다(M1~M5 각 §E5에서 반복 확인).
+
+`cross_platform_build`:
+- `applicable`: false
+- `reason`: Google Apps Script는 빌드 단계가 없다(`.gs`/`.html` 파일은 컴파일 없는 순수 JavaScript/마크업).
+
+`total_run_phase_files`: run 단계 전체에서 수정된 파일 — `Utils.gs`(M1), `Code.gs`(M2, M3, M4), `Index.html`(M3, 보안 수정, M5), `progress.md`(매 마일스톤 §E.2 갱신) — 소스 파일 3개(`Utils.gs`, `Code.gs`, `Index.html`) + `progress.md`.
+
+`m1_to_mN_commit_strategy`: 마일스톤별 개별 커밋(per-M separate commit) — M1~M5 및 보안 수정까지 총 6개의 `feat`/`fix` 커밋, 각 커밋 직후 `progress.md` SHA 백필용 `docs` 커밋을 별도로 추가하는 패턴을 M1~M4에서 사용했다. 이 M5 완료 커밋도 동일 패턴(구현 커밋 → 별도 SHA 백필 `docs` 커밋)을 따른다.
+
+**남은 검증 (사용자 실기 필요)**: 이 SPEC 전체에서 라이브 실행 검증이 미완료인 항목은 **AC-009**(바이낸스 실제 200 응답 수신)이 유일하게 명시적으로 미검증(GAP)이며, 그 외에도 M1/M2(시트 API 실제 호출)와 M5(브라우저에서의 버튼 렌더링·클릭 흐름) 전체가 정적 코드 추적에만 의존했다 — Google Apps Script 실행 환경(사용자의 Google 계정, 배포된 웹앱)이 없으면 이 세션에서 대체할 방법이 없다(research.md §3 E5). 사용자가 배포된 웹앱에서 다음을 수동으로 확인해야 한다:
+
+1. 심볼이 등록된 자산(예: 비트코인)의 "값 가져오기" 클릭 → 입력 필드에 소수점 둘째 자리까지의 실제 시세가 채워지는지
+2. 이어서 "적용" 클릭 → 시트 F열이 갱신되는지
+3. 심볼 없는 자산에는 "값 가져오기" 버튼이 보이지 않는지
+4. 잘못된 심볼 또는 네트워크 오류 시 인라인 오류 메시지가 표시되고 입력 필드가 비는지
+5. 기존 자산 추가·삭제·행 CRUD·요약 계산에 회귀가 없는지
+
+run_status: run-phase 구현 완료 (M1~M5 전부), 실기 인수 테스트 대기
+run_complete_at: 2026-08-23
+run_commit_sha: _pending-backfill-m5_
 
 ## §E.4 Sync-phase Audit-Ready Signal
 

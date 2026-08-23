@@ -311,6 +311,9 @@
     .price-input:focus { outline: none; border-color: var(--navy); }
     .btn-apply { background: #2E6B3E; padding: 5px 11px; font-size: 0.78rem; }
     .btn-apply:hover { background: #3a8a50; }
+    .btn-fetch { background: var(--navy); padding: 5px 11px; font-size: 0.78rem; }
+    .btn-fetch:hover { background: #264a78; }
+    .fetch-error { font-size: 0.8rem; color: var(--neg); margin-left: 4px; }
 
     /* ── 자산 관리 태그 ── */
     .asset-tag {
@@ -556,12 +559,18 @@
     var html = '';
     assetTypesList.forEach(function(cat) {
       var curVal = curMap.hasOwnProperty(cat) ? curMap[cat] : '';
+      var symbol = assetSymbolsMap.hasOwnProperty(cat) ? assetSymbolsMap[cat] : '';
       html += '<div class="price-row">' +
         '<span class="price-cat">' + escAttr(cat) + '</span>' +
         '<input type="number" class="price-input" id="pi-' + escAttr(cat) + '" ' +
           'step="any" min="0" value="' + escAttr(curVal) + '" placeholder="USD">' +
-        '<button class="btn btn-apply" onclick="applyAssetPrice(\'' + escJs(cat) + '\')">적용</button>' +
-        '</div>';
+        '<button class="btn btn-apply" onclick="applyAssetPrice(\'' + escJs(cat) + '\')">적용</button>';
+      if (symbol) {
+        html +=
+          '<button class="btn btn-fetch" onclick="fetchAssetPrice(\'' + escJs(cat) + '\')">값 가져오기</button>' +
+          '<span id="fetch-err-' + escAttr(cat) + '" class="fetch-error"></span>';
+      }
+      html += '</div>';
     });
     area.innerHTML = html;
   }
@@ -591,6 +600,34 @@
         if (btn) { btn.disabled = false; btn.textContent = '적용'; }
       })
       .setAssetPrice(cat, price);
+  }
+
+  /* ── 바이낸스 현재가 조회 (입력 필드만 채움, 시트 미변경) ── */
+  function fetchAssetPrice(cat) {
+    var input = document.getElementById('pi-' + cat);
+    if (!input) return;
+    var btn = input.parentElement.querySelector('.btn-fetch');
+    var errEl = document.getElementById('fetch-err-' + cat);
+    if (errEl) errEl.textContent = '';
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+    google.script.run
+      .withSuccessHandler(function(json) {
+        var d = JSON.parse(json);
+        if (btn) { btn.disabled = false; btn.textContent = '값 가져오기'; }
+        if (d.error) {
+          input.value = '';
+          if (errEl) errEl.textContent = d.error;
+          return;
+        }
+        input.value = d.price;
+      })
+      .withFailureHandler(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '값 가져오기'; }
+        input.value = '';
+        if (errEl) errEl.textContent = '조회 실패: ' + e.message;
+      })
+      .fetchBinancePrice(cat);
   }
 
   /* ── 테이블 렌더 ── */
