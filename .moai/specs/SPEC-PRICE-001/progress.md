@@ -165,6 +165,70 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect per the
 
 **Residual-risk**: The static-trace verification is logically sound but has not been exercised against the live Google Sheets API. Edge cases not covered by static trace: (a) Google Sheets API behavior when `setValues` receives a 2-column array where some cells are empty strings (expected: writes empty string, not null — assumed based on Apps Script `Range.setValues` documented behavior, not independently verified here); (b) concurrent `initSheet()` invocations (out of scope — Apps Script script execution is inherently single-threaded per script).
 
+### M2 — 서버 읽기 계층 재구성 (cycle_type=ddd, DDD ANALYZE-PRESERVE-IMPROVE)
+
+**ANALYZE**: `Code.gs`의 `getAssetTypes()`는 `@MX:ANCHOR fan_in=4`(`addAssetType`/`deleteAssetType`/`getPortfolioData`/`updateAssetDropdown_` 의존)로, 반환 형식(`string[]`)을 바꾸면 서버 4개 + 클라이언트 4개 호출부가 흔들린다(plan.md §C). `getPortfolioData()`는 기존에 `getAssetTypes()`를 호출해 `assetTypes`만 반환했고, B열(바이낸스 심볼)은 아직 응답에 포함되지 않았다.
+
+**PRESERVE**: `getAssetTypes()`의 외부 시그니처(파라미터 없음, 반환 `string[]`)와 4개 호출부(`addAssetType`, `deleteAssetType`, `getPortfolioData` 내부 로직 재구성 전 형태, `updateAssetDropdown_`)의 호출 방식 — 모두 그대로 보존. `getPortfolioData()`의 기존 응답 필드(`rows`, `summary`, `assetTypes`)도 그대로 보존, 신규 필드만 추가.
+
+**IMPROVE (원자적 변경 1건, 단일 패키지 `Code.gs` 내)**:
+1. `readAssetRows_()` 신규 — `AssetTypes` 시트 A:B열을 `getValues()` **단일 호출**로 읽어 `[{name, symbol}]` 배열 반환. 시트가 없으면 `initAssetTypesSheet_()`로 생성(기존 `getAssetTypes()`의 패턴과 동일). `lastRow < 2`일 때만 빈 배열 반환 — 이 조건은 원래 `getAssetTypes()`가 `DEFAULT_ASSETS`로 폴백하던 조건과 정확히 일치.
+2. `getAssetTypes()` 재구성 — `readAssetRows_()` 결과를 `.map(name).filter(truthy)`로 변환하는 얇은 래퍼로 교체. `rows.length === 0`(= `lastRow < 2`)일 때만 `DEFAULT_ASSETS.slice()` 반환 — 기존 분기 조건과 동치임을 코드 추적으로 확인(§ 아래 수동 추적 (b) 참조). `@MX:ANCHOR` 주석에 시그니처 보존 사실 명시(`@MX:REASON`).
+3. `getPortfolioData()` 수정 — `readAssetRows_()`를 **1회만** 호출해 `assetTypes`(이름 배열)와 `assetSymbols`(`{name: symbol}` 맵)를 인라인으로 함께 조립(별도 `getAssetSymbolMap_()` 헬퍼 없음, plan.md §C 확정 설계). 기존 `rows`/`summary`/`assetTypes` 필드는 그대로, `assetSymbols` 필드만 추가.
+
+#### AC PASS/FAIL 매트릭스
+
+| AC | 대상 요구사항 | 상태 | 검증 방법 | 실제 결과 |
+|----|--------------|------|-----------|-----------|
+| (REQ-003/004/005/008 대응, acceptance.md §D.2/§D.3/§D.4 교차 참조) | REQ-003, REQ-004, REQ-005, REQ-008 | PASS (정적 추적) | 코드 논리 수동 추적 + grep 카운트 | `readAssetRows_()`가 `getValues()`를 정확히 1회 호출(REQ-003/REQ-004), `getPortfolioData()`가 `readAssetRows_()`를 정확히 1회 호출해 `assetTypes`+`assetSymbols` 동시 파생(REQ-005), `getAssetTypes()`/`addAssetType`/`deleteAssetType`/`setAssetPrice` 시그니처 byte-diff 무변경(REQ-008) — 아래 수동 추적 (a)~(e) 전항목 PASS |
+
+**Gaps (미검증)**: M1과 동일한 사유로 Google Apps Script 실행 환경 없이는 실제 스프레드시트 API 호출을 실행할 수 없어 **정적 코드 추적 + grep 카운트로만 검증**했다. Apps Script 에디터에서의 실기 실행(`getPortfolioData()`/`getAssetTypes()` 직접 실행 + 응답 JSON 육안 확인, 특히 `assetSymbols` 필드 값 검증)은 사용자의 Google 계정 및 배포된 스크립트 접근이 필요하므로 이 세션에서는 수행 불가 — 사용자의 수동 인수 테스트 통과로 이관.
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|----------------------|----------------|
+| readAssetRows_() single getValues() call | PASS (static) | `grep -n 'getValues()' Code.gs` scoped to `readAssetRows_()` function body (manual trace) | Exactly 1 `.getValues()` call inside `readAssetRows_()` (line 212 of the post-edit file: `sheet.getRange(2, 1, lastRow - 1, 2).getValues()`) |
+| getAssetTypes() return shape unchanged | PASS (static) | Manual code trace: `rows.length === 0 ⟺ lastRow < 2` equivalence proof | New branch condition (`!rows.length`) fires under exactly the same condition as the old branch condition (`lastRow < 2`), because `readAssetRows_()` returns `[]` iff `lastRow < 2` and returns a `lastRow-1`-length array (always ≥1) otherwise. Return type is `string[]` in both branches — unchanged. |
+| getPortfolioData() single readAssetRows_() call, assetTypes + assetSymbols both derived from it | PASS (static) | `awk '/^function getPortfolioData/,/^}/' Code.gs \| grep -v '^\s*//' \| grep -c 'readAssetRows_()'` → `1`; same-scope `grep -c 'getAssetTypes()'` → `0` (a Korean comment line inside the function also contains the literal string `readAssetRows_()`, so the comment-inclusive count is 2 — the `grep -v '^\s*//'` filter excludes that false match) | `readAssetRows_()` called exactly once (line 127, the only non-comment match); `assetTypes` and `assetSymbols` both derived from the same `assetRows` local variable — no second sheet read |
+| updateAssetDropdown_() unaffected | PASS (static) | `awk '/^function updateAssetDropdown_/,/^}/' Code.gs` (full function body extraction) | Body byte-identical to pre-M2: still calls `getAssetTypes()` once, receives `string[]`, passes to `requireValueInList(list)` unchanged — no behavior change |
+| addAssetType/deleteAssetType/setAssetPrice signatures byte-identical | PASS (static) | `git diff -- Code.gs \| grep -E '^[+-]function (addAssetType\|deleteAssetType\|setAssetPrice)\('` | (no output — zero matches, confirming no signature-line diff for any of the three functions) |
+
+#### E2. Cross-Platform Build result
+
+N/A — Google Apps Script has no build step; `.gs` files are plain JavaScript with no compilation. Not applicable to this project (same as M1).
+
+#### E3. Coverage measurement
+
+N/A — no automated test framework exists in this project (plan.md §A "development method": Apps Script 에디터 수동 실행 + 웹앱 실기 확인).
+
+#### E4. Subagent Boundary Grep
+
+```
+$ grep -n 'AskUserQuestion' Code.gs
+(no output — no matches)
+```
+
+#### E5. Lint Status
+
+N/A — no linter configured for this Apps Script project (no `.eslintrc`/`.golangci.yml` equivalent present).
+
+#### E6. Branch HEAD + Push state
+
+- Base commit (pre-M2, `origin/main` tip at session start): `bd9207fa0332bd3f09f6727c9200627769557ae5`
+- Commit SHA: _pending — recorded in a follow-up backfill commit per the self-referential-hash exemption (progress.md cannot cite its own commit's SHA within that same commit; same pattern as M1's E6)_
+- Push result: _pending — recorded alongside the SHA backfill_
+
+#### E7. Blocker Report
+
+None — no blockers encountered. Files touched: `Code.gs` (implementation) and this `progress.md` (§E.2 M2 evidence). No other file modified, per `git status --short` / `git diff --name-only` showing only `Code.gs` before this progress.md edit.
+
+#### E8. RED Failure Output (N/A — cycle_type=ddd, not tdd)
+
+Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this project has no automated test framework, so no RED-GREEN-REFACTOR cycle applies. Verification is DDD-style: PRESERVE (external signature + existing response fields unchanged) and IMPROVE (new `readAssetRows_()` internal reader + `assetSymbols` field) both confirmed by code trace — deferred to the user's Apps Script editor manual acceptance pass per plan.md §E.
+
+**Residual-risk**: Static-trace verification only — not exercised against the live Google Sheets API. Untested edge case: an `AssetTypes` sheet with data rows present (`lastRow >= 2`) but every row's A-column name is blank/whitespace-only. In this case `readAssetRows_()` returns a non-empty array (blank-name entries included), so `getAssetTypes()`'s `!rows.length` guard does NOT fire and it falls through to `.map().filter(truthy)`, returning `[]` — this matches the ORIGINAL pre-M2 behavior exactly (verified above), so no regression, but the pathological case has not been exercised live. `assetSymbols` in `getPortfolioData()` filters out blank-name rows via `if (r.name)` before adding to the map, so no `""` key can ever be added.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_

@@ -122,7 +122,18 @@ function getPortfolioData() {
     totalRate:   totalRate
   };
 
-  return JSON.stringify({ rows: rows, summary: summary, assetTypes: getAssetTypes() });
+  // AssetTypes 시트 A:B 단일 읽기 → assetTypes(이름 배열) + assetSymbols(맵) 인라인 조립
+  // (readAssetRows_() 1회 호출로 두 값 모두 파생 — 별도 getAssetSymbolMap_() 헬퍼 없음, plan.md §C)
+  const assetRows  = readAssetRows_();
+  const assetTypes = assetRows.length
+    ? assetRows.map(function(r) { return r.name; }).filter(function(v) { return v; })
+    : DEFAULT_ASSETS.slice();
+  const assetSymbols = {};
+  assetRows.forEach(function(r) {
+    if (r.name) assetSymbols[r.name] = r.symbol;
+  });
+
+  return JSON.stringify({ rows: rows, summary: summary, assetTypes: assetTypes, assetSymbols: assetSymbols });
 }
 
 // ── 행 데이터 쓰기 헬퍼 ─────────────────────────────────
@@ -190,16 +201,27 @@ function setAssetPrice(cat, price) {
   return getPortfolioData();
 }
 
-// ── 자산 종류 목록 반환 (웹앱용) ───────────────────────
-// @MX:ANCHOR fan_in=4 — addAssetType/deleteAssetType/getPortfolioData/updateAssetDropdown_ 모두 의존
-function getAssetTypes() {
+// ── AssetTypes 시트 A:B 단일 읽기 (내부 헬퍼) ──────────────
+// @MX:NOTE fan_in=2 — getAssetTypes/getPortfolioData 모두 의존, A:B 동시 읽기로 시트 API 호출 1회 유지
+function readAssetRows_() {
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(ASSET_SHEET_NAME);
   if (!sheet) sheet = initAssetTypesSheet_();
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return DEFAULT_ASSETS.slice();
-  const vals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  return vals.map(function(r) { return String(r[0]).trim(); }).filter(function(v) { return v; });
+  if (lastRow < 2) return [];
+  const vals = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  return vals.map(function(r) {
+    return { name: String(r[0]).trim(), symbol: String(r[1] || '').trim() };
+  });
+}
+
+// ── 자산 종류 목록 반환 (웹앱용) ───────────────────────
+// @MX:ANCHOR fan_in=4 — addAssetType/deleteAssetType/getPortfolioData/updateAssetDropdown_ 모두 의존
+// @MX:REASON 외부 시그니처(반환 string[])는 M2 재구성 이후에도 불변 — readAssetRows_() 기반 내부 구현으로 교체됨(plan.md §C)
+function getAssetTypes() {
+  const rows = readAssetRows_();
+  if (!rows.length) return DEFAULT_ASSETS.slice();
+  return rows.map(function(r) { return r.name; }).filter(function(v) { return v; });
 }
 
 // ── 자산 추가 (웹앱용) ─────────────────────────────────
