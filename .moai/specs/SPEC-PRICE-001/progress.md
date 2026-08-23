@@ -381,9 +381,9 @@ N/A — no linter configured for this Apps Script project. Manual balance check 
 #### E6. Branch HEAD + Push state
 
 - Base commit (pre-M4, `origin/main` tip after the escJs security-fix commit): `c08f4cb30a3019892d9681ea083d7d888a0ef61c`
-- M4 commit SHA: _<filled after commit — see below>_
-- `git push origin HEAD:main` result: _<filled after push — see below>_
-- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before push): _<filled below>_
+- M4 commit SHA: `f615e5759f582e84176bc9bf071d1822555cbb44`
+- `git push origin HEAD:main` → `c08f4cb..f615e57  HEAD -> main` (fast-forward, success)
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before push): `0  1` (clean, local ahead by 1 — this commit)
 
 #### E7. Blocker Report
 
