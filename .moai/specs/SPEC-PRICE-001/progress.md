@@ -458,8 +458,8 @@ N/A — no linter configured for this Apps Script project. Manual balance check 
 
 - Base commit (pre-M5, `origin/main` tip at session start): `9607559` (`docs(SPEC-PRICE-001): backfill M4 commit SHA into progress.md §E.2`)
 - Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before commit): `0  0` (clean, in sync)
-- M5 commit SHA: _to be backfilled after commit (see §E.3 below for the placeholder-then-backfill pattern used by prior milestones)_
-- `git push origin HEAD:main` result: _to be recorded after push_
+- M5 commit SHA: `df4990138de9d0900de752afdbbb35a2dbfcbee5`
+- `git push origin HEAD:main` result: `9607559..df49901  HEAD -> main` (fast-forward, success)
 
 #### E7. Blocker Report
 
@@ -482,7 +482,7 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 | M3 | 자산 관리 패널 심볼 등록/수정 (`setAssetSymbol`) | `Code.gs`, `Index.html` | `32c6315` |
 | (보안 수정) | `escJs` 이중따옴표 이스케이프 누락 수정 (XSS 방어) | `Index.html` | `c08f4cb` |
 | M4 | 바이낸스 조회 서버 함수 (`fetchBinancePrice`) | `Code.gs` | `f615e57` |
-| M5 | 클라이언트 UI — "값 가져오기" 버튼 (`fetchAssetPrice`) | `Index.html` | _이 커밋(하단 §E.6 참조 후 백필)_ |
+| M5 | 클라이언트 UI — "값 가져오기" 버튼 (`fetchAssetPrice`) | `Index.html` | `df49901` |
 
 **요구사항 커버리지 (REQ-001 ~ REQ-025, 전 25건)**:
 
@@ -523,7 +523,7 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 
 run_status: run-phase 구현 완료 (M1~M5 전부), 실기 인수 테스트 대기
 run_complete_at: 2026-08-23
-run_commit_sha: _pending-backfill-m5_
+run_commit_sha: df4990138de9d0900de752afdbbb35a2dbfcbee5
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
