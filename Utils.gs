@@ -18,14 +18,26 @@ function getLastDataRow(sheet) {
   return DATA_START - 1;
 }
 
+// AssetTypes 시트 B1 헤더 멱등 프로비저닝 — 이미 값이 있으면 아무 것도 하지 않는다
+function ensureAssetSymbolHeader_(sheet) {
+  const cell = sheet.getRange(1, 2);
+  if (String(cell.getValue()).trim()) return;
+  cell.setValue('바이낸스 심볼').setFontWeight('bold');
+}
+
 // AssetTypes 시트 생성 및 기본값 삽입 (기존 데이터 있으면 유지)
 function initAssetTypesSheet_() {
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(ASSET_SHEET_NAME);
   if (!sheet) sheet = ss.insertSheet(ASSET_SHEET_NAME);
-  if (sheet.getLastRow() >= 2) return sheet;
+  if (sheet.getLastRow() >= 2) {
+    ensureAssetSymbolHeader_(sheet);
+    return sheet;
+  }
   sheet.getRange(1, 1).setValue('자산명').setFontWeight('bold');
-  const data = DEFAULT_ASSETS.map(function(n) { return [n]; });
-  sheet.getRange(2, 1, data.length, 1).setValues(data);
+  sheet.getRange(1, 2).setValue('바이낸스 심볼').setFontWeight('bold');
+  const defaultSymbols = { '비트코인': 'BTCUSDT', '이더리움': 'ETHUSDT', '솔라나': 'SOLUSDT' };
+  const data = DEFAULT_ASSETS.map(function(n) { return [n, defaultSymbols[n] || '']; });
+  sheet.getRange(2, 1, data.length, 2).setValues(data);
   return sheet;
 }
