@@ -218,6 +218,12 @@ secret-*.*
 !.moai/evolution/telemetry/.gitkeep
 
 # ===========================================
+# Session Trace Logs (per-session runtime artifacts)
+# ===========================================
+.moai/logs/*.jsonl
+!.moai/logs/.gitkeep
+
+# ===========================================
 # Node.js (for docs/Nextra)
 # ===========================================
 node_modules/
