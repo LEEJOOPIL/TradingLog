@@ -216,8 +216,9 @@ N/A — no linter configured for this Apps Script project (no `.eslintrc`/`.gola
 #### E6. Branch HEAD + Push state
 
 - Base commit (pre-M2, `origin/main` tip at session start): `bd9207fa0332bd3f09f6727c9200627769557ae5`
-- Commit SHA: _pending — recorded in a follow-up backfill commit per the self-referential-hash exemption (progress.md cannot cite its own commit's SHA within that same commit; same pattern as M1's E6)_
-- Push result: _pending — recorded alongside the SHA backfill_
+- Commit SHA: `7d70a1c` (full: see `git log --format=%H -1 7d70a1c`)
+- `git push origin HEAD:main` → `bd9207f..7d70a1c  HEAD -> main` (fast-forward, success)
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before push): `0  1` (clean, local ahead by 1 — this commit)
 
 #### E7. Blocker Report
 
