@@ -298,6 +298,103 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 
 **Residual-risk**: Static-trace verification only — not exercised against the live Google Sheets API or a browser. Untested: whether the inline `symbol-input`/`btn-save-symbol` styling visually integrates acceptably with the existing navy/green palette (a subjective judgment deferred to the user); whether an asset name containing HTML-significant characters (`&`, `'`, `"`, `<`, `>`) round-trips correctly through `escAttr`/`escJs` into the `id="sym-<name>"` DOM id and back through `document.getElementById('sym-' + name)` in `saveAssetSymbol` — this follows the exact pre-existing pattern used by `pi-<cat>`/`applyAssetPrice`, so no new risk is introduced, but it was not exercised live in this session.
 
+### 선행 보안 수정 — `escJs` 이중따옴표 이스케이프 누락 (M4 착수 전, 별도 커밋)
+
+M3 §E.2의 Residual-risk 항목이 지목했던 위험(자산명에 HTML-특수문자가 들어갈 때 `escAttr`/`escJs`가 안전한지)이 실제 결함으로 확인되었다. `escJs(s)`는 백슬래시와 단일 인용부호만 이스케이프하고 **이중 인용부호(`"`)는 이스케이프하지 않았다** — 이 함수의 출력은 항상 이중 인용부호로 감싼 HTML 속성(`onclick="fn('...')"`) 안에 단일 인용부호 JS 문자열로 삽입되므로, 자산명에 `"`가 포함되면 속성이 조기 종료되어 마크업/스크립트 주입이 가능했다. 이 앱은 `addAssetType`에서 자산명 문자 제한을 두지 않으므로 사용자 스스로 입력한 자산명으로 트리거 가능한 XSS였다.
+
+**수정**: `escJs()`에 `.replace(/"/g, '&quot;')`를 추가 — 출력이 HTML 속성 안에서 파싱되므로 `&quot;`는 HTML 파서가 `"`로 되돌린 뒤에야 JS 문자열에 도달하며, 되돌려진 문자열에는 속성을 끊을 수 있는 리터럴 `"`가 존재하지 않는다.
+
+| 항목 | 내용 |
+|------|------|
+| 대상 파일 | `Index.html` (1줄 변경) |
+| 호출부 3곳 | `applyAssetPrice`, `deleteAsset`, `saveAssetSymbol` — 전부 동일한 취약 패턴을 공유했으므로 헬퍼 1곳 수정으로 3곳 모두 방어됨 |
+| 커밋 | `c08f4cb` — `fix(SPEC-PRICE-001): escJs 이중따옴표 이스케이프 누락 수정 (XSS 방어)` |
+| 검증 | 코드 리뷰 — 수정 후 `escJs()`가 `\`, `'`, `"` 세 문자 전부를 이스케이프함을 diff로 확인. Google Apps Script 환경 실기 조작(자산명에 `"` 포함 문자열 입력 후 렌더 확인)은 이 세션에서 수행 불가 |
+| Push | `git push origin HEAD:main` → `7539279..c08f4cb  HEAD -> main` (fast-forward, success) |
+
+### M4 — 바이낸스 조회 서버 함수 (cycle_type=ddd, DDD ANALYZE-PRESERVE-IMPROVE)
+
+**ANALYZE**: `AssetTypes` B열 심볼은 M2/M3에서 이미 조회·기록 가능하지만, 실제로 바이낸스에서 시세를 가져오는 서버 함수는 아직 없다. `readAssetRows_()`가 `[{name, symbol}]`을 단일 읽기로 반환하므로, 심볼 조회는 이 헬퍼를 재사용하면 시트 읽기 추가 없이 가능하다(plan.md §C). 외부 HTTP 호출은 이 프로젝트 최초이며, research.md §2/§3/§4가 응답 형식(`price`는 문자열)·오류 모드(E1~E8)·`muteHttpExceptions` 필수성을 실측으로 확정해 두었다.
+
+**PRESERVE**: `getAssetTypes()`, `getPortfolioData()`, `setAssetPrice()`, `setAssetSymbol()` 등 기존 서버 함수 전부 시그니처·동작 불변 — `fetchBinancePrice`는 이들을 호출하지 않는 완전히 신규 독립 함수다. `Index.html`은 이 마일스톤에서 전혀 수정하지 않는다(REQ-025 구조적 보장 — 클라이언트에 반올림 로직이 없어야 하므로, M5 이전에는 손대지 않는 편이 오히려 안전).
+
+**IMPROVE (원자적 변경 1건, 단일 파일 `Code.gs` 내)**:
+1. `Code.gs`: `fetchBinancePrice(cat)` 신규 — `readAssetRows_()`로 심볼 조회(빈 값이면 즉시 `{error}` 반환, HTTP 호출 없음) → `UrlFetchApp.fetch(url, {muteHttpExceptions: true, followRedirects: true})`를 try/catch로 감쌈(E6 네트워크 오류) → 응답 코드 분기(400/429/418/451/기타) → `JSON.parse`를 try/catch로 감쌈(E7 파싱 오류) → `parseFloat` + `isFinite` 검사(E8 수치 오류) → `Number(parseFloat(raw).toFixed(2))`로 반올림(research.md §7.3 확정 공식, `Math.round(x*100)/100` 미사용) → 반올림 결과가 `0`인데 원본이 `0`보다 크면 0 붕괴 가드로 `{error}` 반환(REQ-024) → 성공 시 `{price, symbol}` 반환.
+2. `appsscript.json`: 프로젝트에 존재하지 않음(신규 생성하지 않음 — Gaps 참조).
+
+#### AC PASS/FAIL 매트릭스
+
+| AC | 대상 요구사항 | 상태 | 검증 방법 | 실제 결과 |
+|----|--------------|------|-----------|-----------|
+| AC-009 (조회 성공, Apps Script 실환경) | REQ-009, REQ-010 | **미검증 (실기 필요)** | Apps Script 실행 환경 필요 | 이 세션에서 검증 불가 — research.md §3 E5 주의사항대로 로컬 `curl` 성공은 대체 증거가 아니다. 사용자가 배포된 스크립트에서 "값 가져오기" 클릭으로 확인해야 한다 |
+| AC-010 (조회는 시트를 변경하지 않는다) | REQ-012, REQ-013 | PASS (정적 추적) | `awk '/^function fetchBinancePrice/,/^}/' Code.gs \| grep -c '\.setValue\|\.setValues'` | `0` — 함수 본문에 시트 쓰기 호출이 전혀 없음 |
+| AC-012 (조회 실패: 잘못된 심볼) | REQ-011, REQ-018 | PASS (정적 추적) | 코드 논리 수동 추적 | `code === 400` 분기가 `{error: '심볼을 찾을 수 없습니다'}`를 반환하고 함수가 그 지점에서 종료 — 이후 어떤 시트 쓰기도 실행되지 않음(크래시 없음) |
+| AC-013 (조회 실패: 심볼 미등록 방어) | REQ-011 | PASS (정적 추적) | `awk '/^function fetchBinancePrice/,/^if \(!symbol\)/' Code.gs \| grep -c 'UrlFetchApp.fetch'` | `0` — 심볼 미등록 시 `if (!symbol)` 분기에서 즉시 반환되며, 이 분기는 `UrlFetchApp.fetch` 호출 이전에 위치해 외부 HTTP 호출이 발생하지 않음 |
+| AC-016 (조회 값은 소수점 둘째 자리까지) | REQ-023 | PASS (정적 추적 + 수기 계산) | 공식 일치 확인 + `0.00000530` 외 사례 수기 추적 | 코드의 `Number(parseFloat(raw).toFixed(2))`가 research.md §7.3 확정 공식과 문자 그대로 일치. `76258.01000000` → `parseFloat` → `76258.01` → `.toFixed(2)` → `"76258.01"` → `Number(...)` → `76258.01`(뒤따르는 0 없음, 오차 0) |
+| AC-017 (1센트 미만 자산의 0 붕괴 차단) | REQ-024 | PASS (정적 추적 + 수기 계산) | `SHIBUSDT` 실측값(`0.00000530`)을 코드에 대입해 수기 추적 | `parseFloat("0.00000530")` → `0.0000053`(`parsedPrice`) → `(0.0000053).toFixed(2)` → `"0.00"` → `Number(...)` → `0`(`rounded`) → `rounded === 0 && parsedPrice > 0` → `true` → `{error: '가격이 너무 작아 표시할 수 없습니다'}` 반환, `{price: 0, ...}`으로 폴스루하지 않음을 확인 |
+
+**§D.3 간접 검증 대응**:
+
+| 항목 | 확인 결과 |
+|------|-----------|
+| 429/418/451 응답 분기 존재 | PASS — `code === 429`/`code === 418`/`code === 451` 3개 분기 모두 코드에 존재, 각각 `{error}` 문자열 반환 |
+| `muteHttpExceptions: true` | PASS — `UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true })` 정확히 지정됨 |
+| `AssetTypes` 시트 읽기 1회 유지 | PASS — `fetchBinancePrice`는 `readAssetRows_()`를 1회만 호출하며, 별도의 시트 읽기 호출 없음 |
+| 반올림 적용 위치가 서버인지 | PASS — `Index.html`에 `toFixed`/`Math.round` 매치 없음(`grep -n "toFixed\|Math.round" Index.html` → 무출력), `Code.gs`의 `fetchBinancePrice`에만 반올림 로직 존재 |
+
+**Gaps (미검증)**:
+
+- **AC-009는 이 세션에서 검증 불가** — Apps Script 실행 환경(사용자의 Google 계정, 배포된 웹앱)에서의 실제 200 응답 수신은 로컬에서 대체할 수 없다(research.md §3 E5). 사용자의 수동 인수 테스트로 이관.
+- **`appsscript.json`은 이 저장소에 존재하지 않는다.** `ls appsscript.json` 확인 결과 파일 없음, `git log`에도 이력 없음 — 이 프로젝트는 매니페스트를 온라인 Apps Script 에디터에서 관리하는 것으로 보인다. 알 수 없는 다른 필수 필드(`timeZone`, `exceptionLogging`, `webapp` 설정 등)를 추측해 매니페스트를 새로 만드는 것은 배포를 깨뜨릴 위험이 있으므로 **생성하지 않았다**. 대신 배포 안내 사항으로 남긴다: 온라인 Apps Script 에디터의 "프로젝트 설정 > appsscript.json 표시"에서 OAuth 스코프 목록에 `https://www.googleapis.com/auth/script.external_request`를 수동으로 추가해야 하며, 최초 실행 시 재승인 프롬프트가 뜬다(REQ-022/AC-D.4 완료 정의 항목).
+- E3(429)/E4(418)/E5(451) 응답은 research.md §3에서도 재현되지 않았다 — 코드 분기는 방어적으로 작성했으나 실제 발생 시 동작은 미관측.
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|----------------------|----------------|
+| AC-009 (live Binance 200 response) | **GAP — cannot verify without Apps Script runtime** | n/a | Deferred to user's manual acceptance pass |
+| AC-010 (no sheet write) | PASS | `awk '/^function fetchBinancePrice/,/^}/' Code.gs \| grep -n "\.setValue\|\.setValues"` | (no output — 0 matches) |
+| AC-012 (invalid symbol → {error}, no crash) | PASS (static) | Manual trace of the `code === 400` branch | Confirmed — returns `{error: '심볼을 찾을 수 없습니다'}` and exits before any further code |
+| AC-013 (empty symbol → 0 fetch calls) | PASS | Manual trace — the `if (!symbol) return ...` line precedes the `UrlFetchApp.fetch(...)` line in source order | 0 fetch calls possible on this path |
+| AC-016 (rounding formula matches spec) | PASS | `grep -n "Number(parseFloat(raw).toFixed(2))" Code.gs` | `337:  const rounded = Number(parseFloat(raw).toFixed(2));` |
+| AC-017 (0-collapse guard) | PASS (manual calc) | Trace of `parseFloat("0.00000530")` → `.toFixed(2)` → `Number(...)` | `0.0000053` → `"0.00"` → `0`; guard `rounded === 0 && parsedPrice > 0` fires, error returned |
+
+#### E2. Cross-Platform Build result
+
+N/A — Google Apps Script has no build step; `.gs` files are plain JavaScript with no compilation. Not applicable to this project (same as M1/M2/M3).
+
+#### E3. Coverage measurement
+
+N/A — no automated test framework exists in this project (plan.md §A "development method": Apps Script 에디터 수동 실행 + 웹앱 실기 확인).
+
+#### E4. Subagent Boundary Grep
+
+```
+$ grep -n 'AskUserQuestion' Code.gs
+(no output — no matches)
+```
+
+#### E5. Lint Status
+
+N/A — no linter configured for this Apps Script project. Manual balance check performed instead: brace/paren balance in `fetchBinancePrice` confirmed by successful `awk` range extraction (the function's opening `{` and closing `}` delimit cleanly, and the extracted block was used verbatim for the AC-010/AC-013 grep checks above).
+
+#### E6. Branch HEAD + Push state
+
+- Base commit (pre-M4, `origin/main` tip after the escJs security-fix commit): `c08f4cb30a3019892d9681ea083d7d888a0ef61c`
+- M4 commit SHA: _<filled after commit — see below>_
+- `git push origin HEAD:main` result: _<filled after push — see below>_
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD` before push): _<filled below>_
+
+#### E7. Blocker Report
+
+None — no blockers encountered. Files touched: `Code.gs` (new `fetchBinancePrice`), and this `progress.md` (§E.2 M4 evidence + the preceding escJs security-fix note). `appsscript.json` was checked (does not exist in this repo) but not created — documented as a Gap/deployment-note per the delegation prompt's explicit instruction not to fabricate a manifest with unknown required fields. No other file modified.
+
+#### E8. RED Failure Output (N/A — cycle_type=ddd, not tdd)
+
+Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this project has no automated test framework, so no RED-GREEN-REFACTOR cycle applies. Verification is DDD-style: PRESERVE (all pre-existing server function signatures unchanged — `fetchBinancePrice` is additive-only) and IMPROVE (new `fetchBinancePrice` function, fully error-path-covered per research.md §3's E1-E8 table) both confirmed by code trace; AC-009 (the one live-network criterion) is deferred to the user's Apps Script editor + browser manual acceptance pass per plan.md §E.
+
+**Residual-risk**: Static-trace verification only — not exercised against the live Binance API from Apps Script. Untested: whether Google's egress IP is regionally blocked (E5/451) in the user's actual deployment location (research.md §3 explicitly flags this as unresolvable outside the real runtime); whether the V8 runtime's `toFixed`/`parseFloat` behave identically to the IEEE754 desk-calculations in research.md §7.2/§7.3 (expected to match since both are V8, but not exercised live in this session); whether Binance's public endpoint is reachable at all from the user's Google Workspace/consumer account's network context at the time of first use.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_

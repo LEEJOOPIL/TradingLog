@@ -289,6 +289,60 @@ function setAssetSymbol(name, symbol) {
   return JSON.stringify({ error: '존재하지 않는 자산입니다.' });
 }
 
+// ── 바이낸스 시세 조회 (웹앱용) ─────────────────────────
+// @MX:NOTE 이 프로젝트 최초의 외부 API 연동(api.binance.com) — muteHttpExceptions 필수(research.md §4)
+function fetchBinancePrice(cat) {
+  const rows = readAssetRows_();
+  let symbol = '';
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].name === String(cat).trim()) {
+      symbol = rows[i].symbol;
+      break;
+    }
+  }
+  if (!symbol) {
+    return JSON.stringify({ error: '심볼이 등록되지 않았습니다' });
+  }
+
+  const url = 'https://api.binance.com/api/v3/ticker/price?symbol=' + encodeURIComponent(symbol);
+
+  let res;
+  try {
+    res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  } catch (e) {
+    return JSON.stringify({ error: '네트워크 오류' });
+  }
+
+  const code = res.getResponseCode();
+  if (code === 400) return JSON.stringify({ error: '심볼을 찾을 수 없습니다' });
+  if (code === 429) return JSON.stringify({ error: '요청이 많습니다. 잠시 후 다시 시도하세요' });
+  if (code === 418) return JSON.stringify({ error: '일시적으로 조회가 차단되었습니다' });
+  if (code === 451) return JSON.stringify({ error: '이 지역에서 조회할 수 없습니다' });
+  if (code !== 200) return JSON.stringify({ error: '조회 중 오류가 발생했습니다' });
+
+  let parsed;
+  try {
+    parsed = JSON.parse(res.getContentText());
+  } catch (e) {
+    return JSON.stringify({ error: '응답 형식 오류' });
+  }
+
+  const raw = parsed.price;
+  const parsedPrice = parseFloat(raw);
+  if (!isFinite(parsedPrice)) {
+    return JSON.stringify({ error: '가격 형식 오류' });
+  }
+
+  // 소수점 둘째 자리 반올림 (research.md §7.3 — 절반 지점 정확도 목적이 아니라 명세 정의된 단일 연산이기 때문)
+  const rounded = Number(parseFloat(raw).toFixed(2));
+  if (rounded === 0 && parsedPrice > 0) {
+    // 0 붕괴 가드 (REQ-024) — 1센트 미만 자산을 조용히 0으로 채우지 않는다
+    return JSON.stringify({ error: '가격이 너무 작아 표시할 수 없습니다' });
+  }
+
+  return JSON.stringify({ price: rounded, symbol: symbol });
+}
+
 // ── B열 드롭다운 갱신 (내부 헬퍼) ──────────────────────
 // @MX:ANCHOR fan_in=3 — addAssetType/deleteAssetType/initSheet 모두 의존
 function updateAssetDropdown_() {
