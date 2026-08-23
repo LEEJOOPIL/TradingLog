@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TradingLog</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:   #1E3A5F;
+      --pos:    #0A7A0A;
+      --neg:    #CC0000;
+      --bg:     #f0f2f5;
+      --card:   #ffffff;
+      --border: #e8ecf0;
+      --text:   #2c3e50;
+      --muted:  #7f8c8d;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── 헤더 ── */
+    header {
+      background: var(--navy);
+      color: white;
+      padding: 14px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    header h1 { font-size: 1.2rem; }
+    #lastUpdated { font-size: 0.75rem; opacity: 0.7; }
+
+    main { max-width: 1400px; margin: 0 auto; padding: 20px 16px 40px; }
+
+    /* ── 요약 카드 ── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 16px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .card-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .card-value { font-size: 1.4rem; font-weight: 700; }
+    .card-value.pos { color: var(--pos); }
+    .card-value.neg { color: var(--neg); }
+
+    /* ── 테이블 영역 ── */
+    .table-section {
+      background: var(--card);
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    .table-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      gap: 8px;
+    }
+    .table-toolbar h2 { font-size: 0.95rem; font-weight: 600; flex: 1; }
+    .toolbar-btns { display: flex; gap: 8px; }
+
+    .table-wrap { overflow-x: auto; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+
+    thead th {
+      background: #f8f9fa;
+      padding: 9px 10px;
+      font-weight: 600;
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+      text-align: right;
+      border-bottom: 2px solid var(--border);
+    }
+    thead th:first-child, thead th:nth-child(2) { text-align: left; }
+    thead th:last-child { text-align: center; }
+
+    tbody td {
+      padding: 9px 10px;
+      text-align: right;
+      border-bottom: 1px solid #f5f5f5;
+      white-space: nowrap;
+    }
+    tbody td:first-child, tbody td:nth-child(2) { text-align: left; }
+    tbody td:last-child { text-align: center; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #f0f4ff; }
+    tbody tr.realized td { opacity: 0.5; }
+    tbody tr.syncing td { opacity: 0.55; font-style: italic; }
+
+    .pos { color: var(--pos); font-weight: 600; }
+    .neg { color: var(--neg); font-weight: 600; }
+
+    .tag {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      margin-left: 4px;
+      background: #e8f5e9;
+      color: #2E7D32;
+      vertical-align: middle;
+    }
+
+    /* ── 버튼 ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--navy);
+      color: white;
+      border: none;
+      padding: 7px 13px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: #264a78; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-add { background: #2E6B3E; }
+    .btn-add:hover { background: #3a8a50; }
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 4px 8px;
+      border-radius: 5px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-icon:hover { border-color: var(--navy); color: var(--navy); }
+    .btn-icon.del:hover { border-color: var(--neg); color: var(--neg); }
+
+    .placeholder {
+      text-align: center;
+      padding: 48px 20px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 13px; height: 13px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── 모달 ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal-box {
+      background: white;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      overflow: hidden;
+    }
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: #f8f9fa;
+    }
+    .modal-head h3 { font-size: 1rem; }
+    .btn-close {
+      background: none;
+      border: none;
+      font-size: 1.1rem;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .btn-close:hover { background: #eee; color: var(--text); }
+
+    .modal-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label { font-size: 0.8rem; font-weight: 600; color: #555; }
+    .field input[type="text"],
+    .field input[type="number"],
+    .field input[type="date"],
+    .field select {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .field input:focus,
+    .field select:focus { border-color: var(--navy); }
+
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .field-check {
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .field-check input[type="checkbox"] {
+      width: 16px; height: 16px;
+      cursor: pointer;
+      accent-color: var(--navy);
+    }
+    .field-check label { font-size: 0.85rem; cursor: pointer; margin: 0; }
+
+    .modal-foot {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: #f8f9fa;
+    }
+    .btn-secondary {
+      background: white;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: #f0f0f0; }
+
+    /* ── 현재가 설정 패널 ── */
+    .price-panel {
+      background: var(--card);
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .price-panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .price-panel-head h2 { font-size: 0.9rem; font-weight: 600; }
+    .price-panel-head .hint { font-size: 0.76rem; color: var(--muted); }
+    .price-panel-body {
+      padding: 12px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .price-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+    .price-cat { font-size: 0.85rem; font-weight: 600; min-width: 72px; }
+    .price-input {
+      width: 120px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      text-align: right;
+    }
+    .price-input:focus { outline: none; border-color: var(--navy); }
+    .btn-apply { background: #2E6B3E; padding: 5px 11px; font-size: 0.78rem; }
+    .btn-apply:hover { background: #3a8a50; }
+
+    /* ── 자산 관리 태그 ── */
+    .asset-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #e8f0fe;
+      color: #1a56db;
+      border-radius: 20px;
+      padding: 4px 8px 4px 12px;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .asset-del {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #6b7280;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 3px;
+      border-radius: 50%;
+    }
+    .asset-del:hover { color: var(--neg); }
+    .asset-add-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    @media (max-width: 768px) {
+      .summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .card-value { font-size: 1.1rem; }
+      .field-row { grid-template-columns: 1fr; }
+      .price-input { width: 100px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📈 TradingLog</h1>
+  <span id="lastUpdated"></span>
+</header>
+
+<main>
+  <div class="summary-grid">
+    <div class="card">
+      <div class="card-label">총 매입금액</div>
+      <div class="card-value" id="s-buy">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">총 평가금액</div>
+      <div class="card-value" id="s-val">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">총 수익금액</div>
+      <div class="card-value" id="s-profit">—</div>
+    </div>
+    <div class="card">
+      <div class="card-label">종합 수익률</div>
+      <div class="card-value" id="s-rate">—</div>
+    </div>
+  </div>
+
+  <div class="price-panel" id="assetMgrPanel">
+    <div class="price-panel-head">
+      <h2>자산 관리</h2>
+      <span class="hint">자산 종류 추가 · 삭제</span>
+    </div>
+    <div class="price-panel-body" id="assetMgrBody">
+      <span style="color:var(--muted);font-size:0.85rem;">로딩 중...</span>
+    </div>
+  </div>
+
+  <div class="price-panel">
+    <div class="price-panel-head">
+      <h2>현재가 설정</h2>
+      <span class="hint">자산별 현재가 입력 → 해당 자산 전체 행 반영</span>
+    </div>
+    <div class="price-panel-body" id="priceInputArea">
+      <span style="color:var(--muted);font-size:0.85rem;">데이터 로딩 중...</span>
+    </div>
+  </div>
+
+  <div class="table-section">
+    <div class="table-toolbar">
+      <h2>포트폴리오</h2>
+      <div class="toolbar-btns">
+        <button class="btn" id="refreshBtn" onclick="refresh()">🔄 새로고침</button>
+        <button class="btn btn-add" onclick="openAddModal()">＋ 새 항목</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <div id="tableArea" class="placeholder">데이터 불러오는 중...</div>
+    </div>
+  </div>
+</main>
+
+<!-- 추가/수정 모달 -->
+<div id="modal" class="modal-overlay" onclick="handleOverlayClick(event)">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="modalTitle">새 항목 추가</h3>
+      <button class="btn-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>날짜 *</label>
+        <input type="date" id="f-date">
+      </div>
+      <div class="field">
+        <label>자산구분 *</label>
+        <select id="f-cat">
+          <option value="">선택...</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>매입가 (USD) *</label>
+          <input type="number" id="f-buy" step="any" min="0" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label>수량 *</label>
+          <input type="number" id="f-qty" step="any" min="0" placeholder="0">
+        </div>
+      </div>
+      <div class="field">
+        <label>현재가 (USD)</label>
+        <input type="number" id="f-cur" step="any" min="0" placeholder="직접 입력">
+      </div>
+      <div class="field">
+        <label>손절가 (USD)</label>
+        <input type="number" id="f-stop" step="any" min="0" placeholder="선택 입력">
+      </div>
+      <div class="field field-check">
+        <input type="checkbox" id="f-checked">
+        <label for="f-checked">손절 실현 — 체크 시 종합 요약에 손절가 기준 반영</label>
+      </div>
+      <div class="field">
+        <label>투자이유</label>
+        <input type="text" id="f-reason" placeholder="선택 입력">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal()">취소</button>
+      <button class="btn" onclick="saveRow()">저장</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  var portfolioRows = [];
+  var editingSheetRow = null;
+  var assetTypesList = [];
+
+  /* ── HTML 표시용 이스케이프 ── */
+  function escAttr(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/'/g, '&#39;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+  /* ── onclick 내 JS 문자열 이스케이프 (단일 인용부호 → 백슬래시 escape) ── */
+  function escJs(s) {
+    return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
+  /* ── 숫자 포맷 ── */
+  function fmt(v, d) {
+    if (v === '' || v === null || v === undefined || v === '-') return '-';
+    var num = Number(v);
+    if (isNaN(num)) return String(v);
+    return num.toLocaleString('en-US', {
+      minimumFractionDigits: d !== undefined ? d : 2,
+      maximumFractionDigits: d !== undefined ? d : 2
+    });
+  }
+  function colorCls(v) {
+    var num = Number(v);
+    if (isNaN(num) || num === 0) return '';
+    return num > 0 ? 'pos' : 'neg';
+  }
+  function sign(v) { return Number(v) >= 0 ? '+' : ''; }
+
+  /* ── 요약 렌더 ── */
+  function renderSummary(s) {
+    document.getElementById('s-buy').textContent = '$' + fmt(s.totalBuy);
+    document.getElementById('s-val').textContent = '$' + fmt(s.totalVal);
+
+    var pel = document.getElementById('s-profit');
+    pel.textContent = (Number(s.totalProfit) >= 0 ? '+$' : '-$') + fmt(Math.abs(s.totalProfit));
+    pel.className = 'card-value ' + colorCls(s.totalProfit);
+
+    var rel = document.getElementById('s-rate');
+    rel.textContent = sign(s.totalRate) + fmt(s.totalRate, 2) + '%';
+    rel.className = 'card-value ' + colorCls(s.totalRate);
+
+  }
+
+  /* ── 현재가 설정 패널 렌더 ── */
+  function renderPricePanel(rows) {
+    var area = document.getElementById('priceInputArea');
+    if (!area) return;
+
+    // rows에서 현재가 값만 수집
+    var curMap = {};
+    rows.forEach(function(r) {
+      if (!curMap.hasOwnProperty(r.cat)) {
+        curMap[r.cat] = (r.cur !== '' && r.cur !== '-') ? r.cur : '';
+      }
+    });
+
+    // assetTypesList 전체 기준으로 렌더 (매입 행 없는 자산 포함)
+    if (!assetTypesList.length) {
+      area.innerHTML = '<span style="color:var(--muted);font-size:0.85rem;">항목 없음</span>';
+      return;
+    }
+
+    var html = '';
+    assetTypesList.forEach(function(cat) {
+      var curVal = curMap.hasOwnProperty(cat) ? curMap[cat] : '';
+      html += '<div class="price-row">' +
+        '<span class="price-cat">' + escAttr(cat) + '</span>' +
+        '<input type="number" class="price-input" id="pi-' + escAttr(cat) + '" ' +
+          'step="any" min="0" value="' + escAttr(curVal) + '" placeholder="USD">' +
+        '<button class="btn btn-apply" onclick="applyAssetPrice(\'' + escJs(cat) + '\')">적용</button>' +
+        '</div>';
+    });
+    area.innerHTML = html;
+  }
+
+  function applyAssetPrice(cat) {
+    var input = document.getElementById('pi-' + cat);
+    if (!input) return;
+    var price = input.value;
+    var priceNum = (price !== '') ? parseFloat(price) : '';
+    var btn = input.parentElement.querySelector('button');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+    // 낙관적 UI: 해당 자산 전체 행 즉시 반영
+    portfolioRows.forEach(function(r) {
+      if (r.cat === cat) {
+        r.cur  = priceNum;
+        r.rate = (priceNum !== '' && Number(r.buy) > 0)
+          ? (priceNum - Number(r.buy)) / Number(r.buy) * 100 : '';
+      }
+    });
+    renderTable(portfolioRows);
+
+    google.script.run
+      .withSuccessHandler(function(json) { onData(json); })
+      .withFailureHandler(function(e) {
+        alert('적용 실패: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '적용'; }
+      })
+      .setAssetPrice(cat, price);
+  }
+
+  /* ── 테이블 렌더 ── */
+  function renderTable(rows) {
+    portfolioRows = rows;
+    renderPricePanel(rows);
+
+    if (!rows.length) {
+      document.getElementById('tableArea').innerHTML =
+        '<div class="placeholder">투자 데이터가 없습니다. "+ 새 항목"으로 추가하세요.</div>';
+      return;
+    }
+
+    var html = '<table><thead><tr>' +
+      '<th>날짜</th><th>자산구분</th>' +
+      '<th>매입가</th><th>수량</th><th>총매입금액</th>' +
+      '<th>현재가</th><th>수익률</th>' +
+      '<th>손절가</th><th>손절액</th>' +
+      '<th>투자이유</th><th>관리</th>' +
+      '</tr></thead><tbody>';
+
+    rows.forEach(function(r, idx) {
+      var rc = (r.rate !== '' && r.rate !== '-') ? colorCls(r.rate) : '';
+      var sc = (r.stopAmt !== '' && r.stopAmt !== '-') ? colorCls(r.stopAmt) : '';
+      var rateStr = (r.rate !== '' && r.rate !== '-')
+        ? sign(r.rate) + fmt(r.rate, 2) + '%' : '-';
+      var stopAmtStr = (r.stopAmt !== '' && r.stopAmt !== '-')
+        ? '$' + fmt(r.stopAmt) : '-';
+
+      var rowCls = r.checked ? 'realized' : (r.sheetRow === -1 ? 'syncing' : '');
+      html += '<tr' + (rowCls ? ' class="' + rowCls + '"' : '') + '>' +
+        '<td>' + (r.date || '-') + '</td>' +
+        '<td>' + r.cat + (r.checked ? '<span class="tag">손절</span>' : '') + '</td>' +
+        '<td>$' + fmt(r.buy) + '</td>' +
+        '<td>' + fmt(r.qty, 6) + '</td>' +
+        '<td>$' + fmt(r.total) + '</td>' +
+        '<td>' + (r.cur !== '' && r.cur !== '-' ? '$' + fmt(r.cur) : '-') + '</td>' +
+        '<td class="' + rc + '">' + rateStr + '</td>' +
+        '<td>' + (r.stop ? '$' + fmt(r.stop) : '-') + '</td>' +
+        '<td class="' + sc + '">' + stopAmtStr + '</td>' +
+        '<td style="text-align:left;color:#555;max-width:160px;overflow:hidden;text-overflow:ellipsis;">' +
+          (r.reason || '') + '</td>' +
+        '<td>' + (r.sheetRow !== -1
+          ? '<button class="btn-icon" onclick="openEditModal(' + idx + ')">수정</button> ' +
+            '<button class="btn-icon del" onclick="confirmDelete(' + idx + ')">삭제</button>'
+          : '<span style="color:var(--muted);font-size:0.76rem;">저장 중…</span>') +
+        '</td>' +
+        '</tr>';
+    });
+
+    html += '</tbody></table>';
+    document.getElementById('tableArea').innerHTML = html;
+  }
+
+  function setUpdated() {
+    document.getElementById('lastUpdated').textContent =
+      new Date().toLocaleString('ko-KR', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      }) + ' 기준';
+  }
+
+  function onData(json) {
+    var d = JSON.parse(json);
+    assetTypesList = d.assetTypes || [];
+    renderSummary(d.summary);
+    renderTable(d.rows);
+    renderAssetManager();
+    populateCatSelect();
+    setUpdated();
+  }
+
+  function onError(e) {
+    document.getElementById('tableArea').innerHTML =
+      '<div class="placeholder">오류: ' + e.message + '</div>';
+  }
+
+  /* ── 데이터 로드 ── */
+  function loadData() {
+    google.script.run
+      .withSuccessHandler(onData)
+      .withFailureHandler(onError)
+      .getPortfolioData();
+  }
+
+  /* ── 데이터 새로고침 ── */
+  function refresh() {
+    var btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 로딩 중...';
+
+    google.script.run
+      .withSuccessHandler(function(json) {
+        onData(json);
+        btn.disabled = false;
+        btn.innerHTML = '🔄 새로고침';
+      })
+      .withFailureHandler(function(e) {
+        alert('오류: ' + e.message);
+        btn.disabled = false;
+        btn.innerHTML = '🔄 새로고침';
+      })
+      .getPortfolioData();
+  }
+
+  /* ── 모달 ── */
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function openAddModal() {
+    editingSheetRow = null;
+    document.getElementById('modalTitle').textContent = '새 항목 추가';
+    document.getElementById('f-date').value    = today();
+    document.getElementById('f-cat').value     = '';
+    document.getElementById('f-buy').value     = '';
+    document.getElementById('f-qty').value     = '';
+    document.getElementById('f-cur').value     = '';
+    document.getElementById('f-stop').value    = '';
+    document.getElementById('f-checked').checked = false;
+    document.getElementById('f-reason').value  = '';
+    document.getElementById('modal').classList.add('open');
+    document.getElementById('f-cat').focus();
+  }
+
+  function openEditModal(idx) {
+    var r = portfolioRows[idx];
+    editingSheetRow = r.sheetRow;
+    document.getElementById('modalTitle').textContent = '항목 수정';
+    document.getElementById('f-date').value    = r.date || today();
+    document.getElementById('f-cat').value     = r.cat || '';
+    document.getElementById('f-buy').value     = r.buy !== '' ? r.buy : '';
+    document.getElementById('f-qty').value     = r.qty !== '' ? r.qty : '';
+    document.getElementById('f-cur').value     = (r.cur !== '' && r.cur !== '-') ? r.cur : '';
+    document.getElementById('f-stop').value    = r.stop ? r.stop : '';
+    document.getElementById('f-checked').checked = !!r.checked;
+    document.getElementById('f-reason').value  = r.reason || '';
+    document.getElementById('modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+  }
+
+  function handleOverlayClick(e) {
+    if (e.target === document.getElementById('modal')) closeModal();
+  }
+
+  function saveRow() {
+    var date    = document.getElementById('f-date').value;
+    var cat     = document.getElementById('f-cat').value;
+    var buy     = document.getElementById('f-buy').value;
+    var qty     = document.getElementById('f-qty').value;
+    var cur     = document.getElementById('f-cur').value;
+    var stop    = document.getElementById('f-stop').value;
+    var checked = document.getElementById('f-checked').checked;
+    var reason  = document.getElementById('f-reason').value;
+
+    if (!date || !cat || buy === '' || qty === '') {
+      alert('날짜, 자산구분, 매입가, 수량은 필수 입력입니다.');
+      return;
+    }
+
+    var data = {
+      date:    date,
+      cat:     cat,
+      buy:     parseFloat(buy),
+      qty:     parseFloat(qty),
+      cur:     cur !== '' ? parseFloat(cur) : '',
+      stop:    stop !== '' ? parseFloat(stop) : '',
+      checked: checked,
+      reason:  reason
+    };
+
+    closeModal();
+
+    // 낙관적 UI: 서버 응답 전에 즉시 테이블 반영
+    if (!editingSheetRow) {
+      portfolioRows.push(buildLocalRow(data));
+    } else {
+      for (var i = 0; i < portfolioRows.length; i++) {
+        if (portfolioRows[i].sheetRow === editingSheetRow) {
+          var upd = buildLocalRow(data);
+          upd.sheetRow = editingSheetRow;
+          portfolioRows[i] = upd;
+          break;
+        }
+      }
+    }
+    renderTable(portfolioRows);
+
+    if (editingSheetRow) {
+      google.script.run
+        .withSuccessHandler(onData)
+        .withFailureHandler(function(e) { alert('수정 실패: ' + e.message); loadData(); })
+        .updateRow(editingSheetRow, data);
+    } else {
+      google.script.run
+        .withSuccessHandler(onData)
+        .withFailureHandler(function(e) { alert('추가 실패: ' + e.message); loadData(); })
+        .addRow(data);
+    }
+  }
+
+  function confirmDelete(idx) {
+    var r = portfolioRows[idx];
+    if (!confirm(r.date + ' ' + r.cat + ' 항목을 삭제할까요?')) return;
+
+    // 낙관적 UI: 즉시 테이블에서 제거
+    portfolioRows.splice(idx, 1);
+    renderTable(portfolioRows);
+
+    if (r.sheetRow < 0) return; // 아직 서버 미확정 행
+    google.script.run
+      .withSuccessHandler(onData)
+      .withFailureHandler(function(e) { alert('삭제 실패: ' + e.message); loadData(); })
+      .deleteRow(r.sheetRow);
+  }
+
+  function buildLocalRow(data) {
+    var buy  = Number(data.buy)  || 0;
+    var qty  = Number(data.qty)  || 0;
+    var cur  = (data.cur  !== '' && data.cur  != null) ? Number(data.cur)  : '';
+    var stop = (data.stop !== '' && data.stop != null) ? Number(data.stop) : '';
+    return {
+      sheetRow: -1,
+      date:    data.date,
+      cat:     data.cat,
+      buy:     buy,
+      qty:     qty,
+      total:   buy * qty,
+      cur:     cur,
+      rate:    (cur !== '' && buy > 0) ? (cur - buy) / buy * 100 : '',
+      stop:    stop,
+      stopAmt: (stop !== '' && buy > 0) ? (stop - buy) * qty : '',
+      checked: !!data.checked,
+      reason:  data.reason || ''
+    };
+  }
+
+  /* ── 자산 관리 패널 렌더 ── */
+  function renderAssetManager() {
+    var body = document.getElementById('assetMgrBody');
+    if (!body) return;
+
+    var tags = assetTypesList.map(function(a) {
+      return '<span class="asset-tag">' +
+        escAttr(a) +
+        '<button class="asset-del" onclick="deleteAsset(\'' + escJs(a) + '\')" title="삭제">×</button>' +
+        '</span>';
+    }).join(' ');
+
+    body.innerHTML = tags +
+      '<div class="asset-add-row">' +
+        '<input type="text" id="assetNewName" class="price-input" placeholder="새 자산명" style="width:140px">' +
+        '<button class="btn btn-add" onclick="addAsset()" style="padding:5px 12px;font-size:0.82rem;">추가</button>' +
+        '<span id="assetMgrMsg" style="font-size:0.8rem;color:var(--neg);margin-left:4px;"></span>' +
+      '</div>';
+  }
+
+  /* ── 모달 자산구분 드롭다운 동적 갱신 ── */
+  function populateCatSelect() {
+    var sel = document.getElementById('f-cat');
+    if (!sel) return;
+    var current = sel.value;
+    sel.innerHTML = '<option value="">선택...</option>';
+    assetTypesList.forEach(function(a) {
+      var opt = document.createElement('option');
+      opt.value = a;
+      opt.textContent = a;
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  }
+
+  /* ── 자산 추가 ── */
+  function addAsset() {
+    var input = document.getElementById('assetNewName');
+    var msg   = document.getElementById('assetMgrMsg');
+    var name  = input ? input.value.trim() : '';
+    if (!name) {
+      if (msg) msg.textContent = '자산명을 입력하세요.';
+      return;
+    }
+    if (msg) msg.textContent = '';
+    if (input) input.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function(json) {
+        if (input) input.disabled = false;
+        var d = JSON.parse(json);
+        if (d.error) {
+          if (msg) msg.textContent = d.error;
+          return;
+        }
+        if (input) input.value = '';
+        onData(json);
+      })
+      .withFailureHandler(function(e) {
+        if (input) input.disabled = false;
+        if (msg) msg.textContent = '추가 실패: ' + e.message;
+      })
+      .addAssetType(name);
+  }
+
+  /* ── 자산 삭제 ── */
+  function deleteAsset(name) {
+    google.script.run
+      .withSuccessHandler(function(json) {
+        var d = JSON.parse(json);
+        if (d.needsConfirm) {
+          if (confirm(d.count + '개 매입 행이 있습니다. 삭제하면 해당 행의 자산구분은 유지되나 드롭다운에서 제거됩니다. 계속할까요?')) {
+            google.script.run
+              .withSuccessHandler(onData)
+              .withFailureHandler(function(e) { alert('삭제 실패: ' + e.message); })
+              .deleteAssetType(name, true);
+          }
+          return;
+        }
+        onData(json);
+      })
+      .withFailureHandler(function(e) { alert('삭제 실패: ' + e.message); })
+      .deleteAssetType(name, false);
+  }
+
+  loadData();
+</script>
+
+</body>
+</html>
