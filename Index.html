@@ -499,7 +499,7 @@
   }
   /* ── onclick 내 JS 문자열 이스케이프 (단일 인용부호 → 백슬래시 escape) ── */
   function escJs(s) {
-    return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
   }
 
   /* ── 숫자 포맷 ── */
