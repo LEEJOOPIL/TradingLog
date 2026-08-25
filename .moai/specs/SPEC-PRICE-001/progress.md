@@ -471,6 +471,41 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 
 **Residual-risk**: Static-trace verification only — not exercised in a live browser or Apps Script runtime. This is the largest residual-risk of the entire SPEC, since M5 is the user-visible payoff: whether the "값 가져오기"/"적용" buttons visually align acceptably side-by-side in the existing `.price-row` flex layout at narrow viewport widths (the `@media (max-width: 768px)` block was not touched and does not explicitly account for a third element in the row); whether the button's navy color reads as clearly distinct from the existing green 적용 button to an actual user; whether `google.script.run.fetchBinancePrice(cat)` round-trips correctly against the real Apps Script server binding (the function exists per M4, but M5 has never invoked it end-to-end). None of these can be resolved without the user's own browser test against the deployed web app.
 
+### 후속 수정 — 바이낸스 지역 차단(451) 대응, `data-api.binance.vision` 미러 전환 (run-phase 완료 보고 이후, 실사용자 실측 기반, M1~M5와 별개의 커밋)
+
+**배경**: 이 SPEC의 run-phase(M1~M5)는 2026-08-23에 구현 완료로 보고되었으나, §E.2 M4/M5 Gaps에 명시된 대로 AC-009(바이낸스 실제 200 응답 수신)는 "이 세션에서 검증 불가"로 남아 사용자의 배포된 웹앱 실기 테스트로 이관되어 있었다. 사용자가 실제로 배포하여 `fetchBinancePrice`를 테스트한 결과, Google Apps Script의 `UrlFetchApp.fetch()`가 Google 클라우드 서버 IP에서 실행되는데, 이 IP 대역에 대해 바이낸스가 다음과 같은 HTTP 451 응답을 반환함을 실측으로 확인했다(2026-08-25):
+
+```json
+{"code": 0, "msg": "Service unavailable from a restricted location according to 'b. Eligibility' in https://www.binance.com/en/terms. ..."}
+```
+
+이는 research.md §3/§4에서 "이 세션에서 검증 불가하지만 예상되는 위험"으로 명시적으로 플래그되었던 E5 지역 차단 위험이 실제로 발생한 것이다. research.md §2.4는 동일 엔드포인트 경로·동일 응답 형식을 제공하는 공개 미러 호스트 `data-api.binance.vision`을 이미 조사해 두었으며, "이 지역 차단 위험이 실제로 발생하면 이 호스트가 1순위 대안이 된다"고 명시했다. 사용자가 이 미러로의 전환을 명시적으로 승인했다(오케스트레이터를 통한 승인 — 단일 호스트 교체이며, spec.md §6의 "바이낸스 외 거래소 연동" 제외 범위에 해당하지 않음. 여전히 100% 바이낸스 데이터, 동일 응답 계약).
+
+**변경 내용 (Code.gs, `fetchBinancePrice` 함수 내 URL 문자열 1줄 + 주석 1줄만 수정)**:
+- URL 호스트: `https://api.binance.com/api/v3/ticker/price?...` → `https://data-api.binance.vision/api/v3/ticker/price?...`
+- `@MX:NOTE` 주석: 새 호스트 반영 + 전환 사유(지역 차단 회피, 실사용자 실측으로 확인됨, 날짜) 기록
+- 그 외 — 응답 코드 분기(400/429/418/451/기타), 반올림 공식, 0 붕괴 가드 — 전부 byte 단위 무변경
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| 항목 | Status | Verification Command | Actual Output |
+|------|--------|----------------------|----------------|
+| `api.binance.com` 완전 제거 | PASS | `grep -c "api\.binance\.com" Code.gs` | `0` |
+| `data-api.binance.vision` 존재 | PASS (2회 — 주석 1회 + URL 1회) | `grep -n "data-api\.binance\.vision" Code.gs` | 293행(주석), 308행(URL) — 2개소 |
+| 응답 코드 분기/반올림/0 붕괴 가드 무변경 | PASS | `git diff --stat -- Code.gs` | `1 file changed, 2 insertions(+), 2 deletions(-)` — 변경은 정확히 2줄(주석 1줄 + URL 1줄)뿐 |
+
+#### E6. Branch HEAD + Push state
+
+- Base commit (이 수정 착수 직전 `origin/main` tip): `e5e3ce7`
+- 이 수정 commit SHA: `pending-backfill-region-block-fix`(다음 커밋에서 백필 예정)
+- `git push origin HEAD:main` 결과: (아래 별도 기록)
+
+#### E7. Blocker Report
+
+없음. 사용자가 이미 미러 전환을 승인했으므로 AskUserQuestion 불필요(B3). 수정 범위는 `Code.gs`(URL 호스트명 + 주석 1줄)와 이 `progress.md`(본 후속 수정 기록)로 한정됨 — 그 외 파일 무수정.
+
+**Gaps (미검증)**: 이 미러 호스트가 Google 서버에서 실제로 451 문제를 해결하는지는 이 세션에서 직접 검증할 수 없다 — 이는 사용자 본인의 재배포·재테스트가 필요하다. research.md §2.4는 이 미러가 "동일 경로·동일 응답 형식의 공개 시장 데이터 전용 미러"임을 확인했으나, Google 클라우드 IP 대역에 대한 지역 차단 여부까지 보장하지는 않는다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 **요약**: SPEC-PRICE-001의 5개 마일스톤(M1~M5) + 보안 수정 1건이 모두 구현 완료됐다.

@@ -290,7 +290,7 @@ function setAssetSymbol(name, symbol) {
 }
 
 // ── 바이낸스 시세 조회 (웹앱용) ─────────────────────────
-// @MX:NOTE 이 프로젝트 최초의 외부 API 연동(api.binance.com) — muteHttpExceptions 필수(research.md §4)
+// @MX:NOTE 이 프로젝트 최초의 외부 API 연동(data-api.binance.vision, 2026-08-25 지역 차단(451) 회피용 미러로 전환 — 실사용자 실측으로 확인됨) — muteHttpExceptions 필수(research.md §2.4, §4)
 function fetchBinancePrice(cat) {
   const rows = readAssetRows_();
   let symbol = '';
@@ -304,7 +304,7 @@ function fetchBinancePrice(cat) {
     return JSON.stringify({ error: '심볼이 등록되지 않았습니다' });
   }
 
-  const url = 'https://api.binance.com/api/v3/ticker/price?symbol=' + encodeURIComponent(symbol);
+  const url = 'https://data-api.binance.vision/api/v3/ticker/price?symbol=' + encodeURIComponent(symbol);
 
   let res;
   try {
