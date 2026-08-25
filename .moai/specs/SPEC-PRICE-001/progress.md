@@ -648,9 +648,10 @@ N/A — 이 Apps Script 프로젝트에는 린터가 구성되어 있지 않다.
 #### E6. Branch HEAD + Push state
 
 - Base commit (이 수정 착수 직전 `origin/main` tip): `7f7b7e7`
-- 이 수정 commit SHA: (커밋 후 기록 — 아래 최종 커밋 SHA 참조)
+- 이 수정 commit SHA: `f1d4774`
 - Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD`, 커밋 전): `0  0`(clean, sync 상태)
-- `git push origin HEAD:main` 결과: (커밋/푸시 후 기록)
+- Post-commit pre-push re-fetch (`git fetch origin main` + `git rev-list --count --left-right origin/main...HEAD`): `0  1`(local이 1커밋 앞섬, 충돌 없음)
+- `git push origin HEAD:main` 결과: 성공, fast-forward `7f7b7e7..f1d4774`
 
 #### E7. Blocker Report
 
