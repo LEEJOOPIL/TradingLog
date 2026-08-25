@@ -590,6 +590,77 @@ N/A — 이 Apps Script 프로젝트에는 린터가 구성되어 있지 않다.
 
 **Gaps (미검증)**: 이 세션에서는 이 듀얼호스트 재시도가 사용자의 실제 모바일(Android Chrome) 403 사례를 실제로 해결하는지 직접 검증할 수 없다 — 이는 사용자 본인의 기기에서의 재테스트가 필요하다. 두 호스트가 실행 컨텍스트별로 왜 다르게 실패하는지(모바일 403 vs 데스크톱 451)에 대한 근본 원인도 완전히 규명되지 않았다 — 위 "배경" 섹션의 추정(서로 다른 Google 계정/실행 아이덴티티가 서로 다른 네트워크 경로를 탈 가능성)은 정보 제공 목적일 뿐, 이 수정이 해결을 보장하지는 않는다. `spec.md` §6 배제 항목 텍스트의 정식 개정 여부는 이 세션의 범위 밖이며, 향후 manager-spec을 통한 정식 SPEC 개정이 필요할 수 있다.
 
+### 후속 수정 — 바이낸스 조회를 서버(Apps Script)에서 클라이언트(브라우저) 직접 호출로 전환, 구글 클라우드 IP 차단 회피 (2026-08-25, 스코프/아키텍처 변경, 사용자 승인, M1~M5 및 위 두 건의 후속 수정과 별개의 커밋)
+
+**배경 — 전체 트러블슈팅 경위(시간순)**: 사용자의 실기 배포 테스트가 이어지면서 다음 순서로 문제가 드러났다(모두 2026-08-25):
+
+1. **1차**: `api.binance.com`(원 호스트) 서버 호출이 이 Google Apps Script 실행 컨텍스트에서 HTTP 451(지역 차단)을 반환 → `data-api.binance.vision` 미러로 1순위 호스트 전환(위 "지역 차단(451) 대응" 후속 수정).
+2. **2차**: 진단을 위해 오류 메시지에 실제 HTTP 상태코드를 노출하도록 수정(위 "조회 오류 메시지에 실제 HTTP 상태코드 노출" 후속 수정).
+3. **3차**: 미러 전환 후에도 **동일 사용자의 Android Chrome 세션**에서 `data-api.binance.vision`이 지속적으로 HTTP 403을 반환 — 데스크톱 Chrome에서는 정상 동작. 이에 대응해 두 호스트를 순서대로 자동 재시도하도록 확장(위 "듀얼호스트 자동 재시도" 후속 수정, spec.md §6 배제 항목의 명시적 재정의).
+4. **4차(이번 수정의 직접 계기)**: 듀얼호스트 재시도 배포 이후에도 사용자의 모바일 실기 테스트에서 조회 실패가 계속 재현됨. 두 호스트(`api.binance.com` = 451, `data-api.binance.vision` = 403) 모두 **서버 측(Apps Script `UrlFetchApp.fetch()`) 실행 컨텍스트에서 발신되는 요청**이 원인이라는 공통점이 있다 — 실제 HTTP 요청이 어느 기기(데스크톱/모바일)에서 클릭했는지와 무관하게 **항상 Google 클라우드의 공유 서버 IP 풀에서 발신**되며, 바이낸스가 이 IP 풀의 일부 대역을 비일관적으로 차단하고 있는 것으로 추정된다(호스트를 바꿔도, 재시도를 늘려도 근본 원인인 "발신 IP가 Google 클라우드"라는 사실 자체는 바뀌지 않음).
+
+**구조적 해결 — 사용자 명시적 승인**: 사용자는 오케스트레이터와의 대화를 통해, 바이낸스 시세 조회를 서버(`Code.gs`의 `UrlFetchApp.fetch`)에서 **클라이언트(`Index.html`의 브라우저 JavaScript, 네이티브 `fetch()` API)로 이전**하는 구조적 변경을 명시적으로 승인했다(2026-08-25). 이렇게 하면 실제 HTTP 요청이 **사용자 본인 기기/네트워크의 IP**(휴대폰 모바일 데이터 또는 가정용 Wi-Fi)에서 발신되어 Google 클라우드 공유 IP 풀과 그로 인한 차단 문제를 완전히 우회한다. 바이낸스의 공개 시세 조회 엔드포인트(`/api/v3/ticker/price`)는 공개 브라우저 소비를 위해 설계된 공개 REST API이므로 GET 요청에 대해 CORS를 지원할 것으로 예상되어 브라우저 JS에서 직접 동작할 것으로 판단했다(단, 아래 Gaps 참조 — 이는 검증되지 않은 가정이다).
+
+**이는 spec.md REQ-009~013·REQ-023의 스코프를 넘어서는 요구사항 수준 변경이다**: spec.md는 REQ-009~013에서 바이낸스 조회를 수행하는 **서버 함수**(`fetchBinancePrice`)를 명시하고, REQ-023은 반올림이 "서버(fetchBinancePrice)"에서 수행된다고 명시한다. 이번 수정은 이 REQ들의 문언을 대체한다 — fetch·반올림 모두 이제 서버가 아닌 클라이언트에서 수행된다. 이는 사용자가 명시적으로 승인한 의도적 변경이며(B3, 실시간 대화를 통한 스코프 확장 승인), 회피성 스코프 위반이 아니다. **spec.md 본문(REQ-009~013, REQ-023의 "서버" 문언)은 이 세션에서 직접 수정하지 않았다** — spec.md/plan.md/acceptance.md 본문 수정은 manager-develop의 소유 범위 밖이며(§ Forbidden ownership crossings, spec-frontmatter-schema.md), 향후 manager-spec으로의 재위임을 통해 정식 개정이 필요하다. 이 progress.md 기록이 그 재위임을 위한 근거 자료(paper trail) 역할을 한다.
+
+**변경 내용**:
+
+1. **`Code.gs`** — `fetchBinancePrice(cat)`와 `tryBinanceHost_(host, symbol)`를 완전히 삭제(더 이상 클라이언트가 호출하지 않는 죽은 코드이므로 전체 제거, 단순성 원칙). 다른 함수(`readAssetRows_`, `getAssetTypes`, `setAssetSymbol`, `getPortfolioData` 등)는 전부 무수정 — `getPortfolioData()`가 이미 응답에 포함하는 `assetSymbols` 필드를 클라이언트의 `assetSymbolsMap`이 그대로 사용하므로 별도 서버 측 심볼 조회가 더 이상 필요 없다.
+2. **`Index.html`** — `fetchAssetPrice(cat)` 함수 본문을 클라이언트 측 구현으로 교체:
+   - 신규 `async function fetchBinancePriceClient_(symbol)` — `api.binance.com` → `data-api.binance.vision` 순서로 `fetch()`를 시도(듀얼호스트 순서 유지). HTTP 상태코드별 분기(400/429/418/451/기타-코드포함), JSON 파싱 실패, `NaN` 가드, 0 붕괴 가드(REQ-024)까지 이전 서버 로직(`tryBinanceHost_`)과 **동일한 문자열·동일한 반올림 공식**(`Number(parseFloat(raw).toFixed(2))`)을 그대로 이식 — 실행 위치만 서버에서 브라우저로 이동했을 뿐 로직은 동치.
+   - `fetchAssetPrice(cat)`는 이제 `assetSymbolsMap`에서 직접 심볼을 조회하고(서버 라운드트립 없이) `fetchBinancePriceClient_`를 `await`하는 구조로 변경. `google.script.run` 호출은 완전히 제거됨.
+   - REQ-017(성공 시 `#pi-<cat>` 입력 필드만 갱신), REQ-018(실패 시 입력 필드 초기화 + `fetch-err-<cat>` 슬롯에 `.textContent`로만 오류 표시, `.innerHTML` 사용 안 함), REQ-019/020(다른 렌더 함수 호출 없음), REQ-025(수동 입력 경로는 이 함수를 거치지 않음 — `applyAssetPrice`는 완전 별도) 전부 구조적으로 보존됨.
+   - `applyAssetPrice(cat)`는 완전히 무수정(byte 단위 무변경, 아래 E1 참조).
+3. **`renderPricePanel`**의 버튼 렌더 조건(`if (assetSymbolsMap[cat])`)은 무수정 — 이미 클라이언트 측 심볼 맵을 참조하므로 이번 변경의 영향을 받지 않음.
+4. 비동기 문법은 `async`/`await`로 작성(데스크톱·Android 모두의 최신 Chrome이 완전히 지원 — `.then()` 체인으로 다운그레이드할 호환성 사유 없음).
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| 항목 | Status | Verification Command | Actual Output |
+|------|--------|----------------------|----------------|
+| `fetchBinancePrice`/`tryBinanceHost_`가 `Code.gs`에 더 이상 존재하지 않음 | PASS | `grep -n "fetchBinancePrice\|tryBinanceHost_" Code.gs` | (출력 없음 — 매치 없음) |
+| `fetchAssetPrice`/`fetchBinancePriceClient_` 어디에도 `google.script.run` 호출 없음 | PASS | `Index.html` 605~664행(두 함수 전체) 육안 확인 | 매치 없음 — `fetch()` 네이티브 API만 사용 |
+| `applyAssetPrice(cat)`가 byte 단위 무변경 | PASS | `git show origin/main:Index.html` vs 워크트리 `Index.html`의 `applyAssetPrice` 함수 본문을 python으로 추출·비교 | `IDENTICAL` |
+| 오류 슬롯이 `.textContent`만 사용(`.innerHTML` 미사용) | PASS | `Index.html` 신규 코드 육안 확인 (`errEl.textContent = ...` 2곳) | `.innerHTML` 매치 없음 — `result.error`는 하드코딩된 한국어 문자열 또는 숫자 상태코드를 포함한 문자열뿐, 신뢰할 수 없는 외부 원문이 마크업으로 삽입되지 않음 |
+| 반올림 공식·0 붕괴 가드가 기존 서버 로직과 동일한 리터럴 | PASS | `git diff -- Code.gs Index.html` 육안 대조 | `Number(parseFloat(raw).toFixed(2))`와 `rounded === 0 && parsedPrice > 0` 가드 모두 이전 `tryBinanceHost_`와 동일한 문자열로 이식됨 |
+| Code.gs/Index.html/progress.md 외 다른 파일 무수정 | PASS | `git status --short` | ` M Code.gs`, ` M Index.html`만 존재(이 progress.md 편집 이전 기준) |
+| 오류 메시지 문구(HTTP 상태코드별) byte 단위 무변경 | PASS | `git diff -- Index.html` 육안 대조 | 10종 오류 문자열 리터럴(`'심볼을 찾을 수 없습니다'` 등) 전부 서버 코드와 동일 — 위치만 브라우저로 이동 |
+
+#### E2. Cross-Platform Build result
+
+N/A — Google Apps Script는 빌드 단계가 없다(`.gs`/`.html` 파일은 컴파일 없는 순수 JavaScript/마크업). 이 프로젝트에는 해당 없음(M1~M5와 동일).
+
+#### E3. Coverage measurement
+
+N/A — 이 프로젝트에는 자동화 테스트 프레임워크가 존재하지 않는다(개발 방식: Apps Script 에디터 수동 실행 + 웹앱 실기 확인).
+
+#### E4. Subagent Boundary Grep
+
+```
+$ grep -n 'AskUserQuestion' Code.gs Index.html
+(no output — no matches)
+```
+
+#### E5. Lint Status
+
+N/A — 이 Apps Script 프로젝트에는 린터가 구성되어 있지 않다.
+
+#### E6. Branch HEAD + Push state
+
+- Base commit (이 수정 착수 직전 `origin/main` tip): `7f7b7e7`
+- 이 수정 commit SHA: (커밋 후 기록 — 아래 최종 커밋 SHA 참조)
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD`, 커밋 전): `0  0`(clean, sync 상태)
+- `git push origin HEAD:main` 결과: (커밋/푸시 후 기록)
+
+#### E7. Blocker Report
+
+없음. 사용자가 오케스트레이터와의 실시간 대화를 통해 이미 이 아키텍처 변경(서버→클라이언트 전환)을 명시적으로 승인했으므로 AskUserQuestion 불필요(B3). 수정 범위는 `Code.gs`(죽은 함수 제거), `Index.html`(클라이언트 측 조회 로직 신설), 이 `progress.md`(본 후속 수정 기록)로 한정됨. `spec.md`/`plan.md`/`acceptance.md`/`research.md` 본문은 무수정 — REQ-009~013·REQ-023의 "서버" 문언이 이번 아키텍처 변경과 불일치하게 된 점은 위 "이는 spec.md REQ-009~013·REQ-023의 스코프를 넘어서는..." 단락에 명시적으로 플래그했으며, 향후 manager-spec을 통한 정식 개정이 필요하다. `Utils.gs`, `Menu.gs`, `PriceFetcher.gs`는 무수정.
+
+**Gaps (미검증)**:
+
+1. **CORS 가정 미검증**: 이 세션은 `api.binance.com`/`data-api.binance.vision`이 브라우저의 크로스오리진 GET 요청에 실제로 CORS를 허용하는지 실측으로 확인할 수 없다 — 이는 공개 API의 일반적 관례에 근거한 가정일 뿐, 확정된 사실이 아니다. 만약 바이낸스 서버 응답 헤더가 CORS를 차단한다면, 브라우저의 `fetch()`는 (상태코드를 읽을 수 없는) 일반적인 네트워크 수준 오류로 실패하며 — 이는 실제 네트워크 장애와 구분되지 않는다 — 클라이언트 측에서 이를 우회할 코드 수준의 해결책은 존재하지 않는다(서버 프록시 등 별도 아키텍처가 필요해짐). 이 위험은 명시적으로 미해결 상태로 남는다.
+2. **사용자의 특정 Android Chrome 사례 해결 여부 미검증**: 이 수정이 사용자가 실제로 겪은 모바일 조회 실패를 해결하는지는 사용자 본인의 재테스트가 필요하다 — 이 세션에서는 배포된 웹앱에 접근할 수 없어 대체 검증 수단이 없다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 **요약**: SPEC-PRICE-001의 5개 마일스톤(M1~M5) + 보안 수정 1건이 모두 구현 완료됐다.

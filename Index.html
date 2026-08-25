@@ -602,32 +602,65 @@
       .setAssetPrice(cat, price);
   }
 
-  /* ── 바이낸스 현재가 조회 (입력 필드만 채움, 시트 미변경) ── */
-  function fetchAssetPrice(cat) {
+  /* ── 바이낸스 현재가 조회 (클라이언트 직접 호출, 입력 필드만 채움, 시트 미변경) ── */
+  /* @MX:NOTE 구글 서버(UrlFetchApp) IP가 바이낸스에 지역/레이트 차단되는 문제를 회피하기 위해
+     서버(fetchBinancePrice) 대신 브라우저 fetch()로 직접 조회한다 — 실제 요청은 사용자 기기의
+     네트워크에서 발신되어 구글 클라우드 공유 IP 풀을 완전히 우회한다(2026-08-25, 사용자 승인,
+     progress.md 참조). 라운딩 공식·0 붕괴 가드는 기존 서버 로직과 동일하게 유지된다. */
+  async function fetchBinancePriceClient_(symbol) {
+    var hosts = ['https://api.binance.com', 'https://data-api.binance.vision'];
+    var lastError = { error: '조회에 실패했습니다' };
+    for (var i = 0; i < hosts.length; i++) {
+      try {
+        var res = await fetch(hosts[i] + '/api/v3/ticker/price?symbol=' + encodeURIComponent(symbol));
+        if (res.status === 400) { lastError = { error: '심볼을 찾을 수 없습니다' }; continue; }
+        if (res.status === 429) { lastError = { error: '요청이 많습니다. 잠시 후 다시 시도하세요' }; continue; }
+        if (res.status === 418) { lastError = { error: '일시적으로 조회가 차단되었습니다' }; continue; }
+        if (res.status === 451) { lastError = { error: '이 지역에서 조회할 수 없습니다' }; continue; }
+        if (res.status !== 200) { lastError = { error: '조회 중 오류가 발생했습니다 (코드: ' + res.status + ')' }; continue; }
+        var parsed;
+        try {
+          parsed = await res.json();
+        } catch (e) {
+          lastError = { error: '응답 형식 오류' };
+          continue;
+        }
+        var raw = parsed.price;
+        var parsedPrice = parseFloat(raw);
+        if (!isFinite(parsedPrice)) { lastError = { error: '가격 형식 오류' }; continue; }
+        var rounded = Number(parseFloat(raw).toFixed(2));
+        if (rounded === 0 && parsedPrice > 0) { lastError = { error: '가격이 너무 작아 표시할 수 없습니다' }; continue; }
+        return { price: rounded, symbol: symbol };
+      } catch (networkErr) {
+        lastError = { error: '네트워크 오류' };
+        continue;
+      }
+    }
+    return lastError;
+  }
+
+  async function fetchAssetPrice(cat) {
     var input = document.getElementById('pi-' + cat);
     if (!input) return;
+    var symbol = assetSymbolsMap.hasOwnProperty(cat) ? assetSymbolsMap[cat] : '';
     var btn = input.parentElement.querySelector('.btn-fetch');
     var errEl = document.getElementById('fetch-err-' + cat);
     if (errEl) errEl.textContent = '';
+    if (!symbol) {
+      if (errEl) errEl.textContent = '심볼이 등록되지 않았습니다';
+      return;
+    }
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
-    google.script.run
-      .withSuccessHandler(function(json) {
-        var d = JSON.parse(json);
-        if (btn) { btn.disabled = false; btn.textContent = '값 가져오기'; }
-        if (d.error) {
-          input.value = '';
-          if (errEl) errEl.textContent = d.error;
-          return;
-        }
-        input.value = d.price;
-      })
-      .withFailureHandler(function(e) {
-        if (btn) { btn.disabled = false; btn.textContent = '값 가져오기'; }
-        input.value = '';
-        if (errEl) errEl.textContent = '조회 실패: ' + e.message;
-      })
-      .fetchBinancePrice(cat);
+    var result = await fetchBinancePriceClient_(symbol);
+
+    if (btn) { btn.disabled = false; btn.textContent = '값 가져오기'; }
+    if (result.error) {
+      input.value = '';
+      if (errEl) errEl.textContent = result.error;
+      return;
+    }
+    input.value = result.price;
   }
 
   /* ── 테이블 렌더 ── */
