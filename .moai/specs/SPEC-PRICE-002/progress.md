@@ -258,9 +258,9 @@ $ git diff --stat
 
 이 델타는 워크트리 격리 제약(위 "환경 제약" 절)으로 인해 다음 절차를 따랐다:
 
-1. 워크트리 브랜치(`worktree-agent-a77488f9e18a5a5c9`)에 커밋 생성(SHA는 §E.6 실제 실행 후 기록).
-2. `git push origin HEAD:main` — 워크트리 HEAD가 push 시점의 `origin/main`을 fast-forward하는지 사전 확인(`git fetch origin main && git rev-list --count --left-right origin/main...HEAD`) 후 push.
-3. push 결과와 최종 SHA는 이 절 하단에 배치 실행 후 확정 기록.
+1. 워크트리 브랜치(`worktree-agent-a77488f9e18a5a5c9`)에 커밋 생성 — SHA `868d952`.
+2. push 전 divergence 확인: `git fetch origin main && git rev-list --count --left-right origin/main...HEAD` → `0 1`(origin/main 대비 뒤처짐 0, 이 브랜치가 1커밋 앞섬 — 충돌 없이 fast-forward 가능함을 확인).
+3. `git push origin HEAD:main` 실행 — 결과는 이 절 하단에 기록.
 
 **Blocker 없음** — plan.md가 해소하지 않은 사용자 결정 필요 사항은 발견되지 않았다. 유일한 환경적 이탈(워크트리 강제 격리)은 사용자 승인이 필요한 스코프 변경이 아니라 실행 인프라 제약이므로, 투명하게 기록하고 (a) origin `main`을 실질적으로 갱신하는 동등한 절차로 대체했다.
 
@@ -268,7 +268,7 @@ $ git diff --stat
 
 run_status: audit-ready
 run_complete_at: 2026-08-26
-run_commit_sha: pending-backfill-SPEC-PRICE-002-M1toM5
+run_commit_sha: 868d952
 ac_pass_count: 16
 ac_fail_count: 0
 ac_deferred_count: 2
