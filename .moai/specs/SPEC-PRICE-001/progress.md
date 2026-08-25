@@ -735,7 +735,7 @@ CLAUDE.md/tech.md 외 파일(`plan.md`/`acceptance.md`/`research.md` 본문, `Co
 **SPEC 전체 여정 요약**: SPEC-PRICE-001은 plan-audit 3회 재감사(iteration 1 FAIL → 2 FAIL → 3 PASS, 점수 0.825 → 0.85 → 0.9125)를 거쳐 Implementation Kickoff Approval을 얻은 뒤, M1(AssetTypes B열 심볼 스키마) → M2(서버 읽기 계층 `readAssetRows_` 재구성) → M3(자산 관리 패널 심볼 등록 `setAssetSymbol` + escJs XSS 방어 수정) → M4(바이낸스 조회 서버 함수 `fetchBinancePrice`) → M5(클라이언트 UI "값 가져오기" 버튼)까지 원래 계획(서버 함수 기반 조회)대로 순차 구현·커밋됐다. run-phase 완료 보고 이후 사용자의 실제 배포 웹앱 실기 테스트에서 지역 차단(451, `api.binance.com`) → 미러 전환(`data-api.binance.vision`) → 모바일 Android Chrome 403 재현 → 듀얼호스트 순차 재시도(스코프 확장, 사용자 승인)까지 단계적으로 대응했으나, 두 호스트 모두 Google 클라우드의 공유 서버 IP에서 발신된다는 공통 원인이 남아 있음을 확인하고, 바이낸스 조회 전체를 서버(Apps Script)에서 클라이언트(브라우저 `fetch()`)로 이전하는 아키텍처 변경을 사용자 승인으로 채택했다(2026-08-25). 그 결과 `Code.gs`의 `fetchBinancePrice`/`tryBinanceHost_`는 삭제되고 동일 로직(반올림 공식, 0 붕괴 가드, 오류 메시지)이 `Index.html`의 `fetchBinancePriceClient_`로 이식됐으며, 사용자가 데스크톱 Chrome과 Android Chrome 양쪽에서 실제 동작을 확인해 최종 성공을 확인했다. spec.md/plan.md/research.md는 이 아키텍처 변경을 반영해 v1.2.0으로 재조정(§2.5/§3.3/§3.6.1 재작성, research.md §8 신설)됐고, 이 sync 단계에서 REQ-022(문서 갱신)와 남은 MX 태그를 마무리하며 3-phase close(`in-progress → implemented → completed`)를 수행한다.
 
 sync_complete_at: 2026-08-25
-sync_commit_sha: pending-backfill-sync
+sync_commit_sha: 2c5874b
 sync_status: completed
 changelog_entry_position: N/A — CHANGELOG.md/README.md 없음(1인 개인 프로젝트, REQ-022는 문서 갱신만 요구하며 신규 문서 생성을 요구하지 않음)
 frontmatter_status_transitions.spec_md: in-progress → implemented → completed (이 sync 커밋에서 병합 수행)
