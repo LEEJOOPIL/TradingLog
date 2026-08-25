@@ -497,8 +497,9 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 #### E6. Branch HEAD + Push state
 
 - Base commit (이 수정 착수 직전 `origin/main` tip): `e5e3ce7`
-- 이 수정 commit SHA: `pending-backfill-region-block-fix`(다음 커밋에서 백필 예정)
-- `git push origin HEAD:main` 결과: (아래 별도 기록)
+- 이 수정 commit SHA: `3863368`
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD`): `0  1`(로컬만 1커밋 앞섬, 충돌 없음)
+- `git push origin HEAD:main` 결과: `e5e3ce7..3863368  HEAD -> main`(fast-forward, 성공)
 
 #### E7. Blocker Report
 
