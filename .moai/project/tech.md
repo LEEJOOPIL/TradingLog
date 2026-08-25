@@ -7,7 +7,7 @@
 | 데이터 저장소 | Google Sheets | 별도 DB 없이 스프레드시트를 원장으로 사용 |
 | 서버 로직 | Google Apps Script (JavaScript) | `.gs` 파일 5개로 구성 |
 | 클라이언트 UI | `Index.html` (바닐라 HTML/CSS/JS SPA) | 프레임워크 없이 `google.script.run`으로 서버 호출 |
-| 가격 소스 | 전 자산 수동 입력 | 외부 API·GOOGLEFINANCE 미사용 — 인증·요금·장애 리스크 없음 |
+| 가격 소스 | 수동 입력(기본/전 자산) + 바이낸스 현물가 조회(보조, 심볼 등록 자산만) | 조회는 브라우저 `fetch()`로 클라이언트에서 직접 수행 — Apps Script 서버(`UrlFetchApp`)를 거치지 않음. 구글 클라우드 서버 IP가 바이낸스에 지역·세션별로 비일관적으로 차단되는 문제(2026-08-25 실측)를 우회하기 위한 아키텍처 결정(SPEC-PRICE-001 §2.5) |
 | 배포 | Apps Script 웹앱 (수동 재배포) | 코드 변경 후 반드시 새 버전 배포 필요 |
 
 ## 의존성

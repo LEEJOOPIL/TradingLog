@@ -10,9 +10,10 @@ Google Sheets + Google Apps Script 기반 투자 기록 관리 앱.
 - **플랫폼**: Google Sheets + Google Apps Script Web App
 - **로직**: Google Apps Script (JavaScript)
 - **UI**: `Index.html` — 브라우저 기반 SPA (google.script.run으로 서버 함수 호출)
-- **가격 소스**: 전 자산 수동 입력 — 외부 API·GOOGLEFINANCE 사용 안 함
+- **가격 소스**: 수동 입력 기본 + 심볼이 등록된 자산은 바이낸스 현물가 조회 보조 (SPEC-PRICE-001)
   - 웹앱 "현재가 설정" 패널에서 자산 종류별 일괄 입력
   - 개별 행은 모달 편집으로 직접 입력 가능
+  - 자산에 바이낸스 심볼이 등록되어 있으면 해당 자산 행에 "값 가져오기" 버튼이 나타나 시세를 입력 필드에만 채워 넣는다(시트 반영은 여전히 "적용" 버튼 전용). 조회는 브라우저 `fetch()`로 직접 수행하며 Apps Script 서버를 거치지 않는다(구글 클라우드 IP 지역 차단 회피, 2026-08-25)
 
 ## 데이터 구조
 
@@ -64,11 +65,11 @@ Google Sheets + Google Apps Script 기반 투자 기록 관리 앱.
 
 | 파일 | 역할 |
 |------|------|
-| `Code.gs` | 상수 정의, onEdit 트리거, doGet(웹앱 진입), getPortfolioData, writeRowData, addRow, updateRow, deleteRow, setAssetPrice, updateAllFormulas, getAssetTypes, addAssetType, deleteAssetType, updateAssetDropdown_, countAssetUsage_ |
+| `Code.gs` | 상수 정의, onEdit 트리거, doGet(웹앱 진입), getPortfolioData, writeRowData, addRow, updateRow, deleteRow, setAssetPrice, updateAllFormulas, getAssetTypes, readAssetRows_, addAssetType, deleteAssetType, setAssetSymbol, updateAssetDropdown_, countAssetUsage_ |
 | `PriceFetcher.gs` | setPriceAndRateFormula (수식·포맷 설정), columnToLetter |
 | `Menu.gs` | onOpen (메뉴 등록), initSheet (시트 초기화 — AssetTypes 시트 생성 포함) |
-| `Utils.gs` | getDataSheet, getLastDataRow (B열 일괄 읽기로 API 1회 최소화), initAssetTypesSheet_ |
-| `Index.html` | 웹앱 HTML/CSS/JS — 요약 카드, 자산 관리 패널, 현재가 설정 패널, 데이터 테이블, 입력 모달 |
+| `Utils.gs` | getDataSheet, getLastDataRow (B열 일괄 읽기로 API 1회 최소화), ensureAssetSymbolHeader_, initAssetTypesSheet_ |
+| `Index.html` | 웹앱 HTML/CSS/JS — 요약 카드, 자산 관리 패널(심볼 등록 포함), 현재가 설정 패널("값 가져오기" 포함), 데이터 테이블, 입력 모달. 바이낸스 시세 조회를 브라우저 `fetch()`로 직접 수행(`fetchBinancePriceClient_`) — 서버를 거치지 않는다 |
 
 ## 메뉴 구성 (투자 관리)
 
@@ -83,7 +84,7 @@ Google Sheets + Google Apps Script 기반 투자 기록 관리 앱.
 |------|------|
 | 요약 카드 | 총 매입금액·총 평가금액·총 수익금액·종합 수익률 실시간 표시 |
 | 자산 관리 패널 | 자산 종류 추가·삭제 — 사용 중인 자산 삭제 시 경고 확인 표시. 추가 즉시 드롭다운·현재가 패널 반영 |
-| 현재가 설정 패널 | 자산 목록 전체 표시 (매입 행 없는 자산 포함) → "적용" 클릭 시 해당 자산 전체 F열 일괄 갱신 |
+| 현재가 설정 패널 | 자산 목록 전체 표시 (매입 행 없는 자산 포함) → "적용" 클릭 시 해당 자산 전체 F열 일괄 갱신. 바이낸스 심볼이 등록된 자산은 "값 가져오기" 버튼으로 시세를 입력 필드에만 채워 넣을 수 있다(시트 미반영, "적용"과 분리된 2단계 확인 흐름) |
 | 데이터 테이블 | 전체 행 목록 — 수정·삭제 버튼 포함 |
 | 새 항목 추가 | "+ 새 항목" 버튼 → 모달에서 날짜·자산구분(동적 드롭다운)·매입가·수량·현재가·손절가 입력 |
 | 낙관적 렌더링 | 저장·삭제·현재가 적용 시 서버 응답 전에 UI 즉시 반영, 백그라운드에서 동기화 |
@@ -105,6 +106,8 @@ Google Sheets + Google Apps Script 기반 투자 기록 관리 앱.
 | USD코인 | USDC | 웹앱 현재가 설정 패널 |
 
 > 사용자가 추가한 자산(예: XRP)은 웹앱 자산 관리 패널의 "자산 종류 추가" 입력 필드로 등록하고, 현재가 설정 패널에서 동일하게 관리한다.
+
+> 자산은 선택적으로 바이낸스 심볼(예: `BTCUSDT`)을 가질 수 있다. `AssetTypes` 시트 B열에 저장되며, 자산 관리 패널의 인라인 심볼 입력 필드로 등록·수정한다. 심볼이 등록된 자산만 현재가 설정 패널에 "값 가져오기" 버튼이 나타난다 — 금·은처럼 바이낸스에 현물 페어가 없는 자산은 심볼 없이 수동 입력만 사용한다.
 
 ## 성능 설계
 

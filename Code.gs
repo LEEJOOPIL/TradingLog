@@ -268,6 +268,8 @@ function deleteAssetType(name, force) {
 }
 
 // ── 자산 심볼 등록/수정 (웹앱용) ─────────────────────────
+// @MX:NOTE updateAssetDropdown_() 의도적으로 미호출 — 심볼(B열) 수정은 자산 목록(A열)
+// 자체를 바꾸지 않으므로 드롭다운 갱신 대상이 아니다(plan.md §F M3, progress.md M3 PRESERVE 참조)
 function setAssetSymbol(name, symbol) {
   const trimmedName   = String(name).trim();
   const trimmedSymbol = String(symbol == null ? '' : symbol).trim();

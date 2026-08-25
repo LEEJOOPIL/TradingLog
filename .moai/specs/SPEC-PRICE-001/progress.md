@@ -3,9 +3,9 @@
 | 항목 | 값 |
 |------|-----|
 | SPEC ID | SPEC-PRICE-001 |
-| 상태 | in-progress |
+| 상태 | completed |
 | Tier | M (spec.md + plan.md + acceptance.md, research.md 보강) |
-| 현재 단계 | run (M1) |
+| 현재 단계 | sync (완료) |
 
 ## §E.1 Plan-phase Audit-Ready Signal
 
@@ -718,4 +718,25 @@ run_commit_sha: df4990138de9d0900de752afdbbb35a2dbfcbee5
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+**문서 갱신 (REQ-022)**:
+
+| 파일 | 절 | 갱신 내용 |
+|------|-----|-----------|
+| `CLAUDE.md` | 기술 스택 §"가격 소스" | "전 자산 수동 입력, 외부 API 미사용" → "수동 입력 기본 + 심볼 등록 자산은 바이낸스 조회 보조" + 클라이언트 직접 호출(구글 클라우드 IP 차단 회피) 근거 1줄 추가 |
+| `CLAUDE.md` | Apps Script 파일 구성 표 | `Code.gs` 행에 `readAssetRows_`/`setAssetSymbol` 추가, 삭제된 `fetchBinancePrice`/`tryBinanceHost_`는 반영하지 않음(실존하지 않으므로). `Utils.gs` 행에 `ensureAssetSymbolHeader_` 추가. `Index.html` 행에 클라이언트 직접 조회(`fetchBinancePriceClient_`) 수행 사실 추가 |
+| `CLAUDE.md` | 웹앱 주요 기능 표 | "현재가 설정 패널" 행에 "값 가져오기" 버튼(2단계 확인 흐름) 설명 추가 |
+| `CLAUDE.md` | 자산구분 입력값 | 자산이 선택적으로 바이낸스 심볼을 가질 수 있다는 안내문 신설 |
+| `.moai/project/tech.md` | 플랫폼 표 "가격 소스" 행 | 수동 입력(기본) + 바이낸스 조회(보조) 병기, 클라이언트 `fetch()` 직접 호출(서버 미경유) 및 구글 클라우드 IP 차단 회피가 아키텍처 결정 근거임을 1줄로 기록 |
+
+**MX 태그 추가**: `Code.gs`의 `setAssetSymbol`에 `@MX:NOTE` 1건 추가 — `updateAssetDropdown_()`를 의도적으로 호출하지 않는 이유(심볼은 B열만 변경, A열 자산 목록은 불변이므로 드롭다운 갱신 대상이 아님)를 명시했다. `readAssetRows_`(`@MX:NOTE fan_in=2`), `getAssetTypes`(`@MX:ANCHOR fan_in=4` + `@MX:REASON`), `updateAssetDropdown_`(`@MX:ANCHOR fan_in=3`), `fetchBinancePriceClient_`(`Index.html` `@MX:NOTE`, 아키텍처 결정 근거 기록)는 run-phase에서 이미 태그가 부여되어 있어 추가 조치 없음(경량 스캔 결과, `grep -n "@MX:" Code.gs Utils.gs Menu.gs PriceFetcher.gs Index.html` 확인).
+
+CLAUDE.md/tech.md 외 파일(`plan.md`/`acceptance.md`/`research.md` 본문, `Code.gs`의 MX 주석 삽입 외 로직)은 이 sync 단계에서 수정하지 않았다 — ownership 경계(spec-frontmatter-schema.md § Forbidden ownership crossings) 준수.
+
+**SPEC 전체 여정 요약**: SPEC-PRICE-001은 plan-audit 3회 재감사(iteration 1 FAIL → 2 FAIL → 3 PASS, 점수 0.825 → 0.85 → 0.9125)를 거쳐 Implementation Kickoff Approval을 얻은 뒤, M1(AssetTypes B열 심볼 스키마) → M2(서버 읽기 계층 `readAssetRows_` 재구성) → M3(자산 관리 패널 심볼 등록 `setAssetSymbol` + escJs XSS 방어 수정) → M4(바이낸스 조회 서버 함수 `fetchBinancePrice`) → M5(클라이언트 UI "값 가져오기" 버튼)까지 원래 계획(서버 함수 기반 조회)대로 순차 구현·커밋됐다. run-phase 완료 보고 이후 사용자의 실제 배포 웹앱 실기 테스트에서 지역 차단(451, `api.binance.com`) → 미러 전환(`data-api.binance.vision`) → 모바일 Android Chrome 403 재현 → 듀얼호스트 순차 재시도(스코프 확장, 사용자 승인)까지 단계적으로 대응했으나, 두 호스트 모두 Google 클라우드의 공유 서버 IP에서 발신된다는 공통 원인이 남아 있음을 확인하고, 바이낸스 조회 전체를 서버(Apps Script)에서 클라이언트(브라우저 `fetch()`)로 이전하는 아키텍처 변경을 사용자 승인으로 채택했다(2026-08-25). 그 결과 `Code.gs`의 `fetchBinancePrice`/`tryBinanceHost_`는 삭제되고 동일 로직(반올림 공식, 0 붕괴 가드, 오류 메시지)이 `Index.html`의 `fetchBinancePriceClient_`로 이식됐으며, 사용자가 데스크톱 Chrome과 Android Chrome 양쪽에서 실제 동작을 확인해 최종 성공을 확인했다. spec.md/plan.md/research.md는 이 아키텍처 변경을 반영해 v1.2.0으로 재조정(§2.5/§3.3/§3.6.1 재작성, research.md §8 신설)됐고, 이 sync 단계에서 REQ-022(문서 갱신)와 남은 MX 태그를 마무리하며 3-phase close(`in-progress → implemented → completed`)를 수행한다.
+
+sync_complete_at: 2026-08-25
+sync_commit_sha: pending-backfill-sync
+sync_status: completed
+changelog_entry_position: N/A — CHANGELOG.md/README.md 없음(1인 개인 프로젝트, REQ-022는 문서 갱신만 요구하며 신규 문서 생성을 요구하지 않음)
+frontmatter_status_transitions.spec_md: in-progress → implemented → completed (이 sync 커밋에서 병합 수행)
+canary_compliance_check: N/A — 이 SPEC은 향후 정책을 스스로 테스트하는 성격이 아님

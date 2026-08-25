@@ -1,10 +1,10 @@
 ---
 id: SPEC-PRICE-001
 title: 바이낸스 현물가 조회 버튼 (값 가져오기)
-version: "1.1.0"
-status: in-progress
+version: "1.2.0"
+status: completed
 created: "2026-08-23"
-updated: "2026-08-23"
+updated: "2026-08-25"
 author: pilsogood
 priority: medium
 phase: "v1.2.0 target"
@@ -20,6 +20,7 @@ issue_number: 0
 |------|------|-----------|--------|
 | 1.0.0 | 2026-08-23 | 최초 작성 (Context-First Discovery 4개 요구사항 확정 반영) | pilsogood |
 | 1.1.0 | 2026-08-23 | §3.6 가격 정밀도 추가 — REQ-023(둘째 자리 반올림, 서버 적용), REQ-024(0 붕괴 차단), REQ-025(수동 입력 불변). §4 제약·§5 성공 기준 반영 | pilsogood |
+| 1.2.0 | 2026-08-25 | 실기 사용자 테스트 중 발견된 구글 클라우드 IP 지역/접근 차단 문제로 조회 아키텍처를 서버→클라이언트 직접 호출로 변경 (§2.5 신설, §3.3 재작성, §3.6.1 재작성, REQ-023 위치 갱신, §4 플랫폼 제약 갱신, §6 대체 호스트 폴백 배제 항목 부분 축소) | pilsogood |
 
 ---
 
@@ -63,6 +64,18 @@ issue_number: 0
 
 `CLAUDE.md` 및 `.moai/project/tech.md`의 "가격 소스: 전 자산 수동 입력 — 외부 API·GOOGLEFINANCE 사용 안 함" 문장은 이 SPEC 이후 사실과 어긋난다. 갱신 대상으로 기록한다. 실제 문서 편집은 sync 단계에서 manager-docs가 수행한다(plan.md §H 참조).
 
+### 2.5 아키텍처 변경 — 바이낸스 조회를 서버에서 클라이언트로 이전 (2026-08-25, 실기 테스트 중 발견)
+
+v1.0.0/v1.1.0은 바이낸스 조회를 서버 함수(`Code.gs`의 `fetchBinancePrice`, `UrlFetchApp.fetch` 사용)로 계획했다(§3.3 원안 참조). run-phase 구현 완료 보고(2026-08-23) 이후 사용자가 실제로 배포한 웹앱에서 실기 테스트를 진행하는 과정에서, 이 계획이 다음 순서로 무너졌다(모두 2026-08-25 실측 — 전체 경위와 커밋 단위 증거는 `progress.md`의 "후속 수정" 절 4건에 시간순으로 기록되어 있고, 실측 데이터의 기술적 배경은 `research.md` §8에 정리되어 있다):
+
+1. `api.binance.com`(원래 계획된 호스트) — Google Apps Script 실행 컨텍스트(Google 클라우드 서버 IP에서 발신)에서 지속적으로 **HTTP 451**(지역 차단, `"Service unavailable from a restricted location according to 'b. Eligibility' in https://www.binance.com/en/terms."`) 반환.
+2. 공개 미러 `data-api.binance.vision`(research.md §2.4에 1순위 대안으로 이미 조사되어 있던 호스트)으로 전환 → 데스크톱 Chrome 세션에서는 해결됐으나, **동일 사용자·동일 배포 웹앱 URL의 Android Chrome 세션**에서 지속적으로 **HTTP 403**이 재현됨(우발적이 아니라 재시도로도 해소되지 않는 재현 가능한 실패).
+3. 두 호스트를 순서대로 자동 재시도하도록 확장(`data-api.binance.vision` ↔ `api.binance.com`) → 그럼에도 동일 Android Chrome 세션에서 두 호스트 모두 실패(403, 451) 재현. 두 호스트 모두 서버(Apps Script `UrlFetchApp.fetch()`) 실행 컨텍스트에서 발신되는 요청이라는 공통점이 있으며, 실제로 클릭한 기기(데스크톱/모바일)와 무관하게 항상 Google 클라우드의 공유 서버 IP 풀에서 발신되고, 바이낸스가 이 풀의 일부 대역을 비일관적으로 차단하는 것으로 추정된다.
+
+**결정**: 바이낸스 조회를 서버에서 **클라이언트**(`Index.html`의 브라우저 JavaScript, 네이티브 `fetch()` API)로 완전히 이전한다. 실제 HTTP 요청이 사용자 본인 기기·네트워크의 IP(모바일 데이터 또는 가정용 Wi-Fi)에서 발신되어, Google 클라우드의 공유 IP 풀과 그로 인한 비일관적 차단 문제를 구조적으로 우회한다. 이 결정은 오케스트레이터와의 실시간 대화를 통해 **사용자가 명시적으로 승인**했다 — plan-phase 결정이 아니라 run-phase 실기 테스트 도중 내려진 사후 결정이다.
+
+이 변경은 §3.3(조회 요구사항)과 §3.6.1(REQ-023 위치 근거)의 문언을 v1.1.0 대비 대체한다. 구현이 원래 plan-phase 설계(§3.3 원안: 서버 함수)와 달라진 이유를 이 절에 근거로 남긴다. `Code.gs`의 `fetchBinancePrice`/`tryBinanceHost_`는 이 변경으로 죽은 코드가 되어 삭제됐다.
+
 ## 3. 요구사항 (GEARS)
 
 ### 3.1 데이터 계층
@@ -95,22 +108,26 @@ The `readAssetRows_()` 내부 리더 shall `AssetTypes` 시트의 A·B 두 열�
 **REQ-008** (Ubiquitous)
 The `addAssetType(name)` 함수 shall 시그니처와 동작을 변경하지 않는다.
 
-### 3.3 조회 (서버)
+### 3.3 조회 (클라이언트 직접 호출) — 2026-08-25 변경, §2.5 참조
+
+> 이 절은 원래 "조회 (서버)"로 v1.1.0까지 서버 함수(`fetchBinancePrice`)를 명시했다. §2.5에 기록된 대로 run-phase 실기 테스트 중 구글 클라우드 IP 지역/접근 차단이 발견되어, 조회 로직 전체가 서버에서 클라이언트로 이전됐다. 아래 REQ-009~013은 그 계층 귀속만 서버→클라이언트로 바꾼 것이며, 각 요구사항의 의도(호출 전 심볼 조회, 방어적 오류 처리, 오류 모드 커버리지, 시트 미접근, 대체값 미사용)는 v1.1.0과 동일하다.
 
 **REQ-009** (Event-driven)
-**When** 클라이언트가 `fetchBinancePrice(cat)`를 호출하면, the 서버 shall 해당 자산의 심볼을 `AssetTypes` 시트에서 조회한 뒤 바이낸스 공개 현물 시세 엔드포인트를 호출하고, 결과를 `JSON.stringify({...})` 문자열로 반환한다(기존 `addAssetType`/`deleteAssetType`의 반환 규약과 동일).
+**When** 사용자가 "값 가져오기" 버튼을 클릭하면, the 클라이언트 shall 이미 로드된 `assetSymbolsMap`(서버 `getPortfolioData()` 응답의 `assetSymbols` 필드 — REQ-005로 이미 전달됨)에서 해당 자산의 심볼을 조회한 뒤, 브라우저 네이티브 `fetch()` API로 바이낸스 공개 현물 시세 엔드포인트를 직접 호출한다(`Index.html`의 `fetchBinancePriceClient_(symbol)`).
 
 **REQ-010** (Event-driven)
-**When** 바이낸스 응답이 HTTP 200이고 `price` 필드를 포함하면, the 서버 shall 그 값을 수치로 변환해 `{price: <number>, symbol: <string>}`을 반환한다.
+**When** 바이낸스 응답이 HTTP 200이고 `price` 필드를 포함하면, the 클라이언트 shall `response.json()`으로 파싱한 값을 수치로 변환해 `{price: <number>, symbol: <string>}` 형태의 결과를 만든다.
 
 **REQ-011** (Event-detected)
-**When** 심볼 미등록·네트워크 오류·비 200 응답·JSON 파싱 실패·수치 변환 실패 중 어느 하나라도 감지되면, the 서버 shall `{error: <사용자용 메시지>}`를 반환한다.
+**When** 심볼 미등록·`fetch()` 프라미스 거부(네트워크·CORS 수준 실패)·비 200 응답(`response.ok`가 false)·JSON 파싱 실패·수치 변환 실패 중 어느 하나라도 감지되면, the 클라이언트 shall 사용자용 오류 메시지를 담은 결과를 만든다.
+
+- `UrlFetchApp`/`muteHttpExceptions`에 대응하는 클라이언트 개념은 없다 — `fetch()`의 프라미스 거부(`.catch()`)가 네트워크·CORS 수준 실패에 해당하며, HTTP 상태 코드 분기는 `response.status`/`response.ok`로 수행한다(400/429/418/451/기타 코드별 분기는 기존 서버 로직과 동일한 메시지로 이식됨).
 
 **REQ-012** (Unwanted)
-The `fetchBinancePrice` shall not 어떤 경우에도 시트 셀을 읽기 외의 목적으로 접근하거나 값을 기록하지 않는다.
+The 바이낸스 조회 로직(`fetchBinancePriceClient_`) shall not 어떤 경우에도 시트 셀을 읽기 외의 목적으로 접근하거나 값을 기록하지 않는다.
 
 **REQ-013** (Unwanted)
-The `fetchBinancePrice` shall not 조회 실패 시 이전 값·기본값·대체 시세로 대체하지 않는다.
+The 바이낸스 조회 로직(`fetchBinancePriceClient_`) shall not 조회 실패 시 이전 값·기본값·대체 시세로 대체하지 않는다.
 
 ### 3.4 조회 (클라이언트)
 
@@ -121,13 +138,13 @@ The `fetchBinancePrice` shall not 조회 실패 시 이전 값·기본값·대�
 The 현재가 설정 패널 shall not 심볼이 비어 있는 자산에 "값 가져오기" 버튼을 렌더하지 않는다.
 
 **REQ-016** (Event-driven)
-**When** 사용자가 "값 가져오기" 버튼을 클릭하면, the 클라이언트 shall 버튼을 비활성 진행 상태로 바꾸고 `google.script.run.fetchBinancePrice(cat)`을 호출한다.
+**When** 사용자가 "값 가져오기" 버튼을 클릭하면, the 클라이언트 shall 버튼을 비활성 진행 상태로 바꾸고 `fetchBinancePriceClient_(symbol)`을 호출한다(브라우저 `fetch()` 기반, `google.script.run` 미경유).
 
 **REQ-017** (Event-driven)
-**When** 서버가 `{price}`를 반환하면, the 클라이언트 shall 해당 자산의 현재가 입력 필드(`#pi-<cat>`) 값만 그 가격으로 채우고 버튼을 원래 상태로 되돌린다.
+**When** `fetchBinancePriceClient_(symbol)` 호출 결과에 `{price}`가 포함되면, the 클라이언트 shall 해당 자산의 현재가 입력 필드(`#pi-<cat>`) 값만 그 가격으로 채우고 버튼을 원래 상태로 되돌린다.
 
 **REQ-018** (Event-detected)
-**When** 서버가 `{error}`를 반환하거나 호출 자체가 실패하면, the 클라이언트 shall 해당 자산 행에 인라인 오류 표시를 노출하고 현재가 입력 필드를 **빈 값**으로 둔다.
+**When** `fetchBinancePriceClient_(symbol)` 호출 결과에 `{error}`가 포함되거나 호출 자체가 실패하면, the 클라이언트 shall 해당 자산 행에 인라인 오류 표시를 노출하고 현재가 입력 필드를 **빈 값**으로 둔다.
 
 **REQ-019** (Unwanted)
 The "값 가져오기" 동작 shall not `setAssetPrice`를 호출하지 않으며, 시트 F열을 변경하지 않는다.
@@ -146,9 +163,9 @@ The 프로젝트 문서(`CLAUDE.md`, `.moai/project/tech.md`) shall 가격 소�
 ### 3.6 가격 정밀도
 
 **REQ-023** (Event-driven)
-**When** `fetchBinancePrice(cat)`가 바이낸스 응답에서 가격을 성공적으로 파싱하면, the 서버 shall 그 값을 **소수점 둘째 자리로 반올림**한 뒤 반환한다.
+**When** `fetchBinancePriceClient_(symbol)`이 바이낸스 응답에서 가격을 성공적으로 파싱하면, the 클라이언트 shall 그 값을 **소수점 둘째 자리로 반올림**한 뒤 반환한다.
 
-- 적용 위치는 **서버**(`Code.gs`의 `fetchBinancePrice`)다. 클라이언트가 아니다 — §3.6.1 참조.
+- 적용 위치는 **클라이언트**(`Index.html`의 `fetchBinancePriceClient_`)다. 서버가 아니다 — v1.1.0에서는 서버(`Code.gs`의 `fetchBinancePrice`)였으나, 2026-08-25 아키텍처 변경(§2.5)으로 조회 로직 전체가 클라이언트로 이전되며 함께 옮겨졌다 — §3.6.1 참조.
 - **반올림(round)** 이며 버림(truncate)이 아니다 — §3.6.2 참조.
 - 반환값은 문자열이 아니라 수치여야 한다(`"76258.01"`이 아니라 `76258.01`).
 
@@ -162,15 +179,17 @@ The 반올림 규칙 shall not 사용자가 손으로 입력하는 현재가에 
 
 두 입력 경로는 같은 입력 필드를 공유하지만 별개다. 사용자가 직접 타이핑한 값은 기존 정밀도(시트 서식 `#,##0.######` 기준 소수점 6자리까지)를 그대로 유지하며, `setAssetPrice` 경로도 변경하지 않는다. 반올림은 **바이낸스에서 가져온 값에만** 적용된다.
 
-#### 3.6.1 왜 서버인가
+#### 3.6.1 왜 클라이언트인가 (2026-08-25 개정 — 원래는 "왜 서버인가")
 
-| 근거 | 설명 |
-|------|------|
-| 계약 단일화 | `fetchBinancePrice`의 반환 계약이 "둘째 자리까지의 수치"로 확정된다. 소비자가 늘어도 규칙이 한 곳에만 존재한다 |
-| 클라이언트 단순화 | 클라이언트는 받은 값을 입력 필드에 그대로 넣는 순수 통과 경로가 된다 — 표시 서식 로직이 생기지 않는다 |
-| 수동 입력 경로 불변 | 수동 입력은 서버 조회 함수를 거치지 않으므로, 서버에 규칙을 두면 REQ-025가 **구조적으로** 보장된다. 클라이언트 입력 필드 단에서 반올림하면 수동 입력까지 잘려 REQ-025를 위반한다 |
+이 절은 v1.1.0까지 "왜 서버인가"였다. 그때는 반올림 위치를 서버로 결정하는 것이 새로운 판단이었다. 그러나 §2.5에 기록된 아키텍처 변경(구글 클라우드 IP 지역·접근 차단을 회피하기 위해 바이낸스 조회 자체를 서버에서 클라이언트로 이전)에 따라 반올림도 조회와 함께 이동했다 — 이는 "클라이언트가 더 낫다"는 새로운 판단이 아니라, **조회 함수 자체가 클라이언트로 옮겨갔기 때문에 반올림도 같은 함수 안에서 불가피하게 따라간 것**이다.
 
-마지막 항목이 결정적이다. 클라이언트 측 반올림은 두 입력 경로를 분리하지 못한다.
+| 근거 | v1.1.0 (서버) | v1.2.0 (클라이언트, 현재) |
+|------|----------------|-----------------------------|
+| 계약 단일화 | `fetchBinancePrice`의 반환 계약이 서버 한 곳에만 존재했다 | 이제 `fetchBinancePriceClient_` 한 함수 안에만 존재한다 — 소비자가 늘어도 규칙은 여전히 한 곳뿐이다 |
+| 실행 위치가 이동한 이유 | (해당 없음) | 조회 자체가 §2.5의 구글 클라우드 공유 IP 차단을 피하려 클라이언트로 이전했다. 조회에 뒤따르는 반올림을 서버에 남겨 두면 조회-반올림 로직이 두 계층으로 흩어져 계약이 두 곳에 존재하게 된다 |
+| 수동 입력 경로 불변 | 수동 입력은 서버 조회 함수를 거치지 않으므로 REQ-025가 구조적으로 보장됐다 | **동일하게 유지된다.** 수동 입력(`applyAssetPrice`)과 조회(`fetchAssetPrice`→`fetchBinancePriceClient_`)는 여전히 완전히 분리된 두 개의 코드 경로다 |
+
+핵심은 마지막 행이다. REQ-025의 보장은 "반올림이 서버에 있다"는 사실에서 나온 것이 아니라 "반올림이 조회 경로에만 있고 수동 입력 경로에는 없다"는 사실에서 나온다. 조회 경로 전체(심볼 조회 → HTTP 호출 → 반올림)가 서버에서 클라이언트로 이동해도, 수동 입력 경로는 애초에 이 조회 경로를 호출한 적이 없으므로 영향을 받지 않는다 — 어느 계층에서 실행되는지와 무관하게 두 경로가 구조적으로 분리되어 있다는 사실 자체가 REQ-025를 보장한다.
 
 #### 3.6.2 왜 반올림인가
 
@@ -182,7 +201,7 @@ The 반올림 규칙 shall not 사용자가 손으로 입력하는 현재가에 
 
 | 구분 | 제약 |
 |------|------|
-| 플랫폼 | Google Apps Script `UrlFetchApp` 사용. 외부 라이브러리 도입 금지 |
+| 플랫폼 | 시트/서버 연동(Sheets API 접근 등)은 Google Apps Script `UrlFetchApp` 등 Apps Script API를 사용. 바이낸스 조회는 예외적으로 브라우저 네이티브 `fetch()` API를 사용(2026-08-25 아키텍처 변경, §2.5 — 구글 클라우드 IP 차단 회피). 두 경우 모두 외부 라이브러리 도입 금지 |
 | 인증 | 공개 엔드포인트만 사용 — API 키·시크릿 저장 금지 |
 | 시트 API | `AssetTypes` 시트 읽기는 호출당 1회(A:B 동시 읽기)를 유지 — 기존 API 호출 최소화 원칙 준수 |
 | 통화 | 반환 가격은 USD 기준(USDT 페어). 원화 환산 없음 |
@@ -224,7 +243,7 @@ The 반올림 규칙 shall not 사용자가 손으로 입력하는 현재가에 
 
 - `CacheService` 기반 시세 캐싱
 - 재시도(retry)·백오프·레이트리밋 큐잉
-- 대체 호스트 자동 폴백
+- ~~대체 호스트 자동 폴백~~ → **부분 스코프 포함으로 변경 (2026-08-25, §2.5 참조)**: 두 호스트(`data-api.binance.vision`, `api.binance.com`)를 순서대로 한 번씩 시도하는 단순 순차 재시도는, 실기 테스트 중 발견된 실행 컨텍스트별 차단 문제(§2.5) 대응을 위해 사용자 승인으로 스코프에 포함되어 클라이언트 `fetchBinancePriceClient_`에 구현됐다. 캐싱, 지수 백오프, 재시도 지연(`sleep` 등), 레이트리밋 큐잉 같은 진짜 복원력 패턴은 여전히 이 SPEC의 제외 범위다 — 이 순차 시도는 동일 요청 내에서 지연 없이 두 번째 호스트를 시도할 뿐이다.
 
 ### Out of Scope — 심볼 관리 고도화
 
