@@ -318,7 +318,7 @@ function fetchBinancePrice(cat) {
   if (code === 429) return JSON.stringify({ error: '요청이 많습니다. 잠시 후 다시 시도하세요' });
   if (code === 418) return JSON.stringify({ error: '일시적으로 조회가 차단되었습니다' });
   if (code === 451) return JSON.stringify({ error: '이 지역에서 조회할 수 없습니다' });
-  if (code !== 200) return JSON.stringify({ error: '조회 중 오류가 발생했습니다' });
+  if (code !== 200) return JSON.stringify({ error: '조회 중 오류가 발생했습니다 (코드: ' + code + ')' });
 
   let parsed;
   try {

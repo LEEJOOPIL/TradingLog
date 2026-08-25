@@ -507,6 +507,23 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 
 **Gaps (미검증)**: 이 미러 호스트가 Google 서버에서 실제로 451 문제를 해결하는지는 이 세션에서 직접 검증할 수 없다 — 이는 사용자 본인의 재배포·재테스트가 필요하다. research.md §2.4는 이 미러가 "동일 경로·동일 응답 형식의 공개 시장 데이터 전용 미러"임을 확인했으나, Google 클라우드 IP 대역에 대한 지역 차단 여부까지 보장하지는 않는다.
 
+### 후속 수정 — 조회 오류 메시지에 실제 HTTP 상태코드 노출, 진단용 (2026-08-25, 모바일 브라우저 실측 기반, M1~M5와 별개의 커밋)
+
+**배경**: 위 지역 차단(451) 미러 전환 이후 사용자가 실기 테스트를 진행하는 과정에서, 데스크톱 Chrome에서는 정상 동작하지만 Android Chrome에서는 동일 기능이 "조회 중 오류가 발생했습니다"라는 일반 오류 메시지만 표시하고 실패하는 현상을 실시간으로 발견했다. 이 메시지는 `fetchBinancePrice`의 폴백 분기(`code !== 200`이면서 400/429/418/451 어느 것도 아닌 경우)에서 반환되는데, 이 분기는 실제 HTTP 상태코드를 삼켜버려 추가 진단이 불가능했다.
+
+**변경 내용 (Code.gs, `fetchBinancePrice` 함수 내 1줄만 수정)**: 폴백 오류 메시지에 실제 상태코드를 포함 — `'조회 중 오류가 발생했습니다'` → `'조회 중 오류가 발생했습니다 (코드: ' + code + ')'`. 이는 진단 가시성 개선일 뿐 동작 변경이 아니다 — 400/429/418/451 분기 및 200 성공 경로, 반올림 로직, 0 붕괴 가드는 전부 무변경.
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| 항목 | Status | Verification Command | Actual Output |
+|------|--------|----------------------|----------------|
+| 변경은 정확히 1줄뿐 | PASS | `git diff --stat -- Code.gs` | `1 file changed, 1 insertion(+), 1 deletion(-)` |
+| 다른 분기(400/429/418/451/200) 무변경 | PASS | `git diff -- Code.gs` 육안 확인 | 변경된 줄은 `code !== 200` 폴백 분기 1줄뿐, 인접 분기 무변경 |
+
+#### E7. Blocker Report
+
+없음. 오케스트레이터/사용자가 이미 대화 중 승인했으므로 AskUserQuestion 불필요(B3). 수정 범위는 `Code.gs`(1줄)와 이 `progress.md`(본 후속 수정 기록)로 한정됨.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 **요약**: SPEC-PRICE-001의 5개 마일스톤(M1~M5) + 보안 수정 1건이 모두 구현 완료됐다.
