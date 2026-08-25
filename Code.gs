@@ -122,18 +122,22 @@ function getPortfolioData() {
     totalRate:   totalRate
   };
 
-  // AssetTypes 시트 A:B 단일 읽기 → assetTypes(이름 배열) + assetSymbols(맵) 인라인 조립
-  // (readAssetRows_() 1회 호출로 두 값 모두 파생 — 별도 getAssetSymbolMap_() 헬퍼 없음, plan.md §C)
+  // AssetTypes 시트 A:C 단일 읽기 → assetTypes(이름 배열) + assetSymbols(맵) + metalSymbols(맵) 인라인 조립
+  // (readAssetRows_() 1회 호출로 세 값 모두 파생 — 별도 헬퍼 없음, plan.md §C / SPEC-PRICE-002)
   const assetRows  = readAssetRows_();
   const assetTypes = assetRows.length
     ? assetRows.map(function(r) { return r.name; }).filter(function(v) { return v; })
     : DEFAULT_ASSETS.slice();
   const assetSymbols = {};
+  const metalSymbols = {};
   assetRows.forEach(function(r) {
-    if (r.name) assetSymbols[r.name] = r.symbol;
+    if (r.name) {
+      assetSymbols[r.name] = r.symbol;
+      metalSymbols[r.name] = r.metalSymbol;
+    }
   });
 
-  return JSON.stringify({ rows: rows, summary: summary, assetTypes: assetTypes, assetSymbols: assetSymbols });
+  return JSON.stringify({ rows: rows, summary: summary, assetTypes: assetTypes, assetSymbols: assetSymbols, metalSymbols: metalSymbols });
 }
 
 // ── 행 데이터 쓰기 헬퍼 ─────────────────────────────────
@@ -201,17 +205,22 @@ function setAssetPrice(cat, price) {
   return getPortfolioData();
 }
 
-// ── AssetTypes 시트 A:B 단일 읽기 (내부 헬퍼) ──────────────
-// @MX:NOTE fan_in=2 — getAssetTypes/getPortfolioData 모두 의존, A:B 동시 읽기로 시트 API 호출 1회 유지
+// ── AssetTypes 시트 A:C 단일 읽기 (내부 헬퍼) ──────────────
+// @MX:NOTE fan_in=2 — getAssetTypes/getPortfolioData 모두 의존, A:C 동시 읽기로 시트 API 호출 1회 유지
+// (SPEC-PRICE-002 — C열 금속시세 심볼 추가, A:B 2열 → A:C 3열로 확장)
 function readAssetRows_() {
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(ASSET_SHEET_NAME);
   if (!sheet) sheet = initAssetTypesSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const vals = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  const vals = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
   return vals.map(function(r) {
-    return { name: String(r[0]).trim(), symbol: String(r[1] || '').trim() };
+    return {
+      name:        String(r[0]).trim(),
+      symbol:      String(r[1] || '').trim(),
+      metalSymbol: String(r[2] || '').trim()
+    };
   });
 }
 
@@ -283,6 +292,30 @@ function setAssetSymbol(name, symbol) {
       for (let i = 0; i < vals.length; i++) {
         if (String(vals[i][0]).trim() === trimmedName) {
           sheet.getRange(i + 2, 2).setValue(trimmedSymbol);
+          return getPortfolioData();
+        }
+      }
+    }
+  }
+  return JSON.stringify({ error: '존재하지 않는 자산입니다.' });
+}
+
+// ── 금속시세 심볼 등록/수정 (웹앱용) ─────────────────────
+// @MX:NOTE updateAssetDropdown_() 의도적으로 미호출 — 심볼(C열) 수정은 자산 목록(A열)
+// 자체를 바꾸지 않으므로 드롭다운 갱신 대상이 아니다(setAssetSymbol과 동일한 근거, SPEC-PRICE-002 M3)
+function setMetalSymbol(name, symbol) {
+  const trimmedName   = String(name).trim();
+  const trimmedSymbol = String(symbol == null ? '' : symbol).trim();
+
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ASSET_SHEET_NAME);
+  if (sheet) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const vals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < vals.length; i++) {
+        if (String(vals[i][0]).trim() === trimmedName) {
+          sheet.getRange(i + 2, 3).setValue(trimmedSymbol);
           return getPortfolioData();
         }
       }

@@ -25,6 +25,14 @@ function ensureAssetSymbolHeader_(sheet) {
   cell.setValue('바이낸스 심볼').setFontWeight('bold');
 }
 
+// AssetTypes 시트 C1 헤더 멱등 프로비저닝 — 이미 값이 있으면 아무 것도 하지 않는다
+// (SPEC-PRICE-002 — 금·은 등 금속시세 심볼용 C열. 값은 자동 시드하지 않음, 헤더만 보강)
+function ensureMetalSymbolHeader_(sheet) {
+  const cell = sheet.getRange(1, 3);
+  if (String(cell.getValue()).trim()) return;
+  cell.setValue('금속시세 심볼').setFontWeight('bold');
+}
+
 // AssetTypes 시트 생성 및 기본값 삽입 (기존 데이터 있으면 유지)
 function initAssetTypesSheet_() {
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
@@ -32,10 +40,12 @@ function initAssetTypesSheet_() {
   if (!sheet) sheet = ss.insertSheet(ASSET_SHEET_NAME);
   if (sheet.getLastRow() >= 2) {
     ensureAssetSymbolHeader_(sheet);
+    ensureMetalSymbolHeader_(sheet);
     return sheet;
   }
   sheet.getRange(1, 1).setValue('자산명').setFontWeight('bold');
   sheet.getRange(1, 2).setValue('바이낸스 심볼').setFontWeight('bold');
+  sheet.getRange(1, 3).setValue('금속시세 심볼').setFontWeight('bold');
   const defaultSymbols = { '비트코인': 'BTCUSDT', '이더리움': 'ETHUSDT', '솔라나': 'SOLUSDT' };
   const data = DEFAULT_ASSETS.map(function(n) { return [n, defaultSymbols[n] || '']; });
   sheet.getRange(2, 1, data.length, 2).setValues(data);

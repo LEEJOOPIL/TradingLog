@@ -490,6 +490,7 @@
   var editingSheetRow = null;
   var assetTypesList = [];
   var assetSymbolsMap = {};
+  var metalSymbolsMap = {};
 
   /* ── HTML 표시용 이스케이프 ── */
   function escAttr(s) {
@@ -560,12 +561,13 @@
     assetTypesList.forEach(function(cat) {
       var curVal = curMap.hasOwnProperty(cat) ? curMap[cat] : '';
       var symbol = assetSymbolsMap.hasOwnProperty(cat) ? assetSymbolsMap[cat] : '';
+      var metalSymbol = metalSymbolsMap.hasOwnProperty(cat) ? metalSymbolsMap[cat] : '';
       html += '<div class="price-row">' +
         '<span class="price-cat">' + escAttr(cat) + '</span>' +
         '<input type="number" class="price-input" id="pi-' + escAttr(cat) + '" ' +
           'step="any" min="0" value="' + escAttr(curVal) + '" placeholder="USD">' +
         '<button class="btn btn-apply" onclick="applyAssetPrice(\'' + escJs(cat) + '\')">적용</button>';
-      if (symbol) {
+      if (symbol || metalSymbol) {
         html +=
           '<button class="btn btn-fetch" onclick="fetchAssetPrice(\'' + escJs(cat) + '\')">값 가져오기</button>' +
           '<span id="fetch-err-' + escAttr(cat) + '" class="fetch-error"></span>';
@@ -639,20 +641,54 @@
     return lastError;
   }
 
+  /* ── 금·은 현물시세 조회 (gold-api.com, 클라이언트 직접 호출, 입력 필드만 채움, 시트 미변경) ── */
+  /* @MX:NOTE gold-api.com은 공개 엔드포인트로 CORS를 전면 허용한다(SPEC-PRICE-002 research.md §2.3
+     실측) — fetchBinancePriceClient_와 동일하게 브라우저 fetch()로 직접 호출하며 서버를 거치지 않는다.
+     바이낸스와 달리 price 필드가 이미 JSON 숫자이므로 parseFloat() 문자열 변환 단계가 없다.
+     반올림(소수점 둘째 자리)·0 붕괴 가드는 이 함수 안에서만 구현한다(REQ-021~023, 다른 곳에 중복 금지). */
+  async function fetchGoldApiPriceClient_(symbol) {
+    try {
+      var res = await fetch('https://api.gold-api.com/price/' + encodeURIComponent(symbol));
+      if (!res.ok) {
+        // 잘못된 심볼은 404 {"error":"Symbol not found"}로 응답함을 실측 확인
+        // (research.md §6 미검증 항목 해소, progress.md §E.2 참조). 확정 전 방침대로
+        // 200이 아닌 모든 응답을 방어적으로 오류 처리한다(REQ-010).
+        return { error: '심볼을 찾을 수 없습니다' };
+      }
+      var parsed;
+      try {
+        parsed = await res.json();
+      } catch (e) {
+        return { error: '응답 형식 오류' };
+      }
+      var raw = Number(parsed.price);
+      if (!isFinite(raw)) return { error: '가격 형식 오류' };
+      var rounded = Number(raw.toFixed(2));
+      if (rounded === 0 && raw > 0) return { error: '가격이 너무 작아 표시할 수 없습니다' };
+      return { price: rounded, symbol: symbol };
+    } catch (networkErr) {
+      return { error: '네트워크 오류' };
+    }
+  }
+
   async function fetchAssetPrice(cat) {
     var input = document.getElementById('pi-' + cat);
     if (!input) return;
     var symbol = assetSymbolsMap.hasOwnProperty(cat) ? assetSymbolsMap[cat] : '';
+    var metalSymbol = metalSymbolsMap.hasOwnProperty(cat) ? metalSymbolsMap[cat] : '';
     var btn = input.parentElement.querySelector('.btn-fetch');
     var errEl = document.getElementById('fetch-err-' + cat);
     if (errEl) errEl.textContent = '';
-    if (!symbol) {
+    if (!symbol && !metalSymbol) {
       if (errEl) errEl.textContent = '심볼이 등록되지 않았습니다';
       return;
     }
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
-    var result = await fetchBinancePriceClient_(symbol);
+    // 바이낸스 심볼 우선(REQ-015) — 둘 다 등록된 경우 바이낸스만 호출하고 gold-api는 호출하지 않는다
+    var result = symbol
+      ? await fetchBinancePriceClient_(symbol)
+      : await fetchGoldApiPriceClient_(metalSymbol);
 
     if (btn) { btn.disabled = false; btn.textContent = '값 가져오기'; }
     if (result.error) {
@@ -726,6 +762,7 @@
     var d = JSON.parse(json);
     assetTypesList = d.assetTypes || [];
     assetSymbolsMap = d.assetSymbols || {};
+    metalSymbolsMap = d.metalSymbols || {};
     renderSummary(d.summary);
     renderTable(d.rows);
     renderAssetManager();
@@ -911,6 +948,7 @@
 
     var rows = assetTypesList.map(function(a) {
       var symbol = assetSymbolsMap.hasOwnProperty(a) ? assetSymbolsMap[a] : '';
+      var metalSymbol = metalSymbolsMap.hasOwnProperty(a) ? metalSymbolsMap[a] : '';
       return '<div class="asset-row">' +
         '<span class="asset-tag">' +
           escAttr(a) +
@@ -920,6 +958,10 @@
           'value="' + escAttr(symbol) + '" placeholder="바이낸스 심볼 (예: BTCUSDT)">' +
         '<button class="btn btn-save-symbol" onclick="saveAssetSymbol(\'' + escJs(a) + '\')">저장</button>' +
         '<span id="sym-msg-' + escAttr(a) + '" class="symbol-msg"></span>' +
+        '<input type="text" class="symbol-input" id="metalsym-' + escAttr(a) + '" ' +
+          'value="' + escAttr(metalSymbol) + '" placeholder="금속시세 심볼 (예: XAU)">' +
+        '<button class="btn btn-save-symbol" onclick="saveMetalSymbol(\'' + escJs(a) + '\')">저장</button>' +
+        '<span id="metalsym-msg-' + escAttr(a) + '" class="symbol-msg"></span>' +
       '</div>';
     }).join('');
 
@@ -938,7 +980,7 @@
     var symbolValue = input.value.trim();
     var msg = document.getElementById('sym-msg-' + name);
     if (msg) msg.textContent = '';
-    var btn = input.parentElement.querySelector('.btn-save-symbol');
+    var btn = input.nextElementSibling;
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
     google.script.run
@@ -956,6 +998,33 @@
         if (msg) msg.textContent = '저장 실패: ' + e.message;
       })
       .setAssetSymbol(name, symbolValue);
+  }
+
+  /* ── 금속시세 심볼 저장 (SPEC-PRICE-002) ── */
+  function saveMetalSymbol(name) {
+    var input = document.getElementById('metalsym-' + name);
+    if (!input) return;
+    var symbolValue = input.value.trim();
+    var msg = document.getElementById('metalsym-msg-' + name);
+    if (msg) msg.textContent = '';
+    var btn = input.nextElementSibling;
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+    google.script.run
+      .withSuccessHandler(function(json) {
+        var d = JSON.parse(json);
+        if (d.error) {
+          if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+          if (msg) msg.textContent = d.error;
+          return;
+        }
+        onData(json);
+      })
+      .withFailureHandler(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+        if (msg) msg.textContent = '저장 실패: ' + e.message;
+      })
+      .setMetalSymbol(name, symbolValue);
   }
 
   /* ── 모달 자산구분 드롭다운 동적 갱신 ── */
