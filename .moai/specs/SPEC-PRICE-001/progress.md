@@ -524,6 +524,72 @@ Not applicable. `cycle_type=ddd` (ANALYZE-PRESERVE-IMPROVE) is in effect; this p
 
 없음. 오케스트레이터/사용자가 이미 대화 중 승인했으므로 AskUserQuestion 불필요(B3). 수정 범위는 `Code.gs`(1줄)와 이 `progress.md`(본 후속 수정 기록)로 한정됨.
 
+### 후속 수정 — 바이낸스 조회 듀얼호스트 자동 재시도, spec.md §6 배제 항목의 명시적 스코프 확장 (2026-08-25, 실사용자 실측 기반, M1~M5와 별개의 커밋)
+
+**배경 — 두 건의 실측 이슈**: 위 두 건의 후속 수정(지역차단 451 대응 미러 전환, 진단용 상태코드 노출) 이후에도 사용자의 실기 트러블슈팅이 계속됐다. 그 과정에서 서로 다른 실행 컨텍스트에서 서로 다른 두 개의 실제 외부 인프라 문제가 확인됐다(둘 다 2026-08-25 실사용자 실측):
+
+1. **`api.binance.com`(원래 호스트)** — 이 Google Apps Script 계정의 실행 컨텍스트에서 지속적으로 HTTP 451(지역 차단)을 반환한다. 이는 이미 위의 "지역 차단(451) 대응" 후속 수정에서 `data-api.binance.vision` 미러로 전환하는 방식으로 대응된 바 있다.
+2. **`data-api.binance.vision`(미러, 앞선 수정에서 1순위 호스트로 전환됨)** — 데스크톱 Chrome 세션에서는 안정적으로 동작하지만, **동일 사용자의 Android Chrome 세션**(동일 웹앱 URL, 사용자가 직접 확인)에서는 지속적으로 HTTP 403을 반환한다. 재시도로도 해소되지 않으며, 우발적(transient)이 아니라 재현 가능한 현상이다. 원인은 완전히 규명되지 않았다 — 서로 다른 Google 계정/실행 아이덴티티가 서로 다른 네트워크 경로를 타면서 바이낸스 측 차단에 걸릴 가능성이 있다고 추정되나(정보성 참고일 뿐, 이 수정의 해결 대상은 아님), 확정된 근본 원인은 아니다.
+
+즉 두 호스트 모두 각자 다른 실행 컨텍스트에서 실패한다 — 단일 호스트로는 데스크톱과 모바일 양쪽을 모두 충족시킬 수 없는 상황이 실측으로 확인됐다.
+
+**명시적 스코프 확장 — 사용자 승인**: `spec.md` §6(제외 범위, 캐싱·복원력)은 원래 "대체 호스트 자동 폴백"을 이 SPEC의 스코프에서 명시적으로 제외했다. 사용자는 위 두 건의 라이브 트러블슈팅 결과를 근거로, 오케스트레이터와의 대화를 통해 **이 배제 항목을 재정의(override)하여 두 호스트를 모두 시도하고 성공하는 쪽을 사용하도록 스코프를 확장하는 데 명시적으로 동의**했다. 이는 사전에 계획되지 않은 실시간 의사결정이며(추측이 아니라 실제 대화에서 이루어진 승인), 재시도/백오프/큐잉 등 REQ-013·plan.md의 다른 복원력 배제 항목에는 영향을 주지 않는다 — 동일 요청 내에서 두 호스트를 순차 시도하는 것뿐, 지연(`Utilities.sleep` 등)을 추가하지 않는다.
+
+**중요 — spec.md 본문은 수정하지 않음**: 이 배제 항목의 실제 텍스트(`spec.md` §6)는 이 세션에서 **직접 수정하지 않았다** — spec.md/plan.md/acceptance.md 본문 수정은 manager-develop의 소유 범위 밖이며(§ Forbidden ownership crossings, spec-frontmatter-schema.md), 발견된 스코프 변경 필요는 manager-spec으로의 재위임을 통해 처리되어야 한다(D-NEW-1 인라인 수정 패턴). 이 progress.md 기록이 그 재위임을 위한 근거 자료(paper trail) 역할을 한다. 사용자가 원한다면 향후 manager-spec을 통해 spec.md §6의 "대체 호스트 자동 폴백 제외" 문구를 정식으로 개정할 수 있다.
+
+**변경 내용 (Code.gs, `fetchBinancePrice` 리팩터링 + 신규 헬퍼 `tryBinanceHost_`)**:
+- 단일 URL 조회 로직(fetch + 상태코드 분기 + JSON 파싱 + 반올림 + 0 붕괴 가드)을 신규 내부 헬퍼 `tryBinanceHost_(host, symbol)`로 추출 — 성공 시 `{price, symbol}`, 실패 시(네트워크 예외/비-200/파싱 실패/NaN/0 붕괴 전부 포함) `{error}` 순수 JS 객체(JSON 문자열 아님)를 반환.
+- `fetchBinancePrice(cat)`는 `['https://data-api.binance.vision', 'https://api.binance.com']` 순서로 루프를 돌며 `tryBinanceHost_`를 호출 — 데스크톱에서 현재 다수 성공 사례를 보이는 미러를 1순위로 두고, 실패 시(2순위로) 원 호스트를 시도. 첫 시도가 성공(`!result.error`)하면 즉시 반환; 두 호스트 모두 실패하면 **두 번째(마지막) 시도의 오류**를 반환.
+- 심볼 미등록(빈 문자열) 조기 반환 경로는 변경 없음 — 이 경로는 두 호스트 모두 시도하지 않고 즉시 반환된다(HTTP 호출 0회, 이전과 동일).
+- 0 붕괴 가드(REQ-024)는 특별히 분기 처리하지 않았다 — 이는 호스트 가용성 문제가 아니라 자산 자체의 가격 데이터 특성이므로, 두 호스트 모두 동일한 작은 가격을 반환할 가능성이 높아 두 번째 호스트 시도가 낭비될 수는 있으나(최악의 경우 HTTP 호출 1회 추가), 동작 정확성에는 영향이 없다 — 단순성을 우선한 의도적 설계 선택(단, 별도 최적화가 필요하다고 판단되면 추후 조정 가능).
+- 모든 기존 오류 메시지 문구(400/429/418/451/일반-코드포함/네트워크/파싱/NaN/0붕괴)는 byte 단위로 무변경 — 제어 흐름만 바뀌었다.
+- `muteHttpExceptions: true`, `followRedirects: true`는 두 호스트 모두 동일하게 적용.
+- 반올림 공식(`Number(parseFloat(raw).toFixed(2))`)과 0 붕괴 가드는 `tryBinanceHost_` 한 곳에만 존재 — 호스트별 중복 없음.
+- `@MX:NOTE` 주석을 듀얼호스트 재시도 동작 + 사유(모바일 세션 403, 데스크톱 세션 451, 둘 다 실측 확인, 2026-08-25)를 반영해 갱신하고, 이 변경이 spec.md §6 "대체 호스트 자동 폴백 제외" 배제 항목을 사용자의 명시적 결정으로 재정의한다는 점을 명시했다.
+
+#### E1. AC Binary PASS/FAIL Matrix
+
+| 항목 | Status | Verification Command | Actual Output |
+|------|--------|----------------------|----------------|
+| 두 호스트는 첫 시도 실패 시에만 조건부로 시도됨(무조건 둘 다 시도 아님) | PASS (수동 추적) | `fetchBinancePrice` 본문 수동 추적 | `for` 루프가 `lastResult.error`가 falsy이면(`!lastResult.error`) 즉시 `return` — 첫 호스트 성공 시 두 번째 호스트는 호출되지 않음 |
+| 심볼 미등록 조기 반환 경로는 호스트 시도 없음 | PASS | `awk '/^function fetchBinancePrice/,/const hosts/' Code.gs` | `if (!symbol) return ...`가 `hosts` 배열/루프 선언보다 앞에 위치 — 이 경로에서 `tryBinanceHost_` 호출 0회 |
+| 기존 오류 메시지 문구 byte 단위 무변경 | PASS | `git diff -- Code.gs` 육안 확인 (각 에러 문자열 리터럴 비교) | `'심볼이 등록되지 않았습니다'`, `'네트워크 오류'`, `'심볼을 찾을 수 없습니다'`, `'요청이 많습니다. 잠시 후 다시 시도하세요'`, `'일시적으로 조회가 차단되었습니다'`, `'이 지역에서 조회할 수 없습니다'`, `'조회 중 오류가 발생했습니다 (코드: ' + code + ')'`, `'응답 형식 오류'`, `'가격 형식 오류'`, `'가격이 너무 작아 표시할 수 없습니다'` 전부 diff에서 문자열 리터럴 변경 없이 위치만 이동(함수 분리) |
+| 반올림/0 붕괴 가드 로직이 `tryBinanceHost_` 한 곳에만 존재 | PASS | `grep -c "toFixed(2)" Code.gs` | `1` — `fetchBinancePrice`가 아닌 `tryBinanceHost_` 본문 안에만 존재 |
+| 최종 성공/실패 시 반환 JSON 형태가 기존 계약과 일치 | PASS (수동 추적) | `Index.html`의 `fetchAssetPrice`(`JSON.parse(json)` 후 `d.error`/`d.price` 접근)와 `tryBinanceHost_`/`fetchBinancePrice`의 반환 형태 비교 | 성공 시 `JSON.stringify({price, symbol})`, 실패 시 `JSON.stringify({error})` — 클라이언트가 기대하는 형태와 정확히 일치, `Index.html`은 무수정 |
+| Code.gs + progress.md 외 다른 파일 무수정 | PASS | `git status --short` | ` M Code.gs`만 존재(이 progress.md 편집 이전 기준) |
+
+#### E2. Cross-Platform Build result
+
+N/A — Google Apps Script는 빌드 단계가 없다(`.gs` 파일은 컴파일 없는 순수 JavaScript). 이 프로젝트에는 해당 없음(M1~M5와 동일).
+
+#### E3. Coverage measurement
+
+N/A — 이 프로젝트에는 자동화 테스트 프레임워크가 존재하지 않는다(개발 방식: Apps Script 에디터 수동 실행 + 웹앱 실기 확인).
+
+#### E4. Subagent Boundary Grep
+
+```
+$ grep -n 'AskUserQuestion' Code.gs
+(no output — no matches)
+```
+
+#### E5. Lint Status
+
+N/A — 이 Apps Script 프로젝트에는 린터가 구성되어 있지 않다. 대신 수동 균형 검사 수행: `python3` 중괄호/괄호 카운트 diff로 `Code.gs` 전체가 편집 후에도 균형(0 delta)임을 확인.
+
+#### E6. Branch HEAD + Push state
+
+- Base commit (이 수정 착수 직전 `origin/main` tip): `c19d9f8`
+- 이 수정 commit SHA: (커밋 후 기록 — 아래 최종 커밋 SHA 참조)
+- Pre-push divergence check (`git rev-list --count --left-right origin/main...HEAD`, 커밋 전): `0  0`(clean, sync 상태)
+- `git push origin HEAD:main` 결과: (커밋/푸시 후 기록)
+
+#### E7. Blocker Report
+
+없음. 사용자가 오케스트레이터와의 실시간 대화를 통해 이미 스코프 확장을 명시적으로 승인했으므로 AskUserQuestion 불필요(B3). 수정 범위는 `Code.gs`(리팩터링 + 신규 헬퍼)와 이 `progress.md`(본 후속 수정 기록)로 한정됨 — `spec.md` §6의 배제 항목 텍스트 자체는 수정하지 않았다(위 "중요 — spec.md 본문은 수정하지 않음" 참조). `Index.html`, `Utils.gs`, `Menu.gs`는 무수정.
+
+**Gaps (미검증)**: 이 세션에서는 이 듀얼호스트 재시도가 사용자의 실제 모바일(Android Chrome) 403 사례를 실제로 해결하는지 직접 검증할 수 없다 — 이는 사용자 본인의 기기에서의 재테스트가 필요하다. 두 호스트가 실행 컨텍스트별로 왜 다르게 실패하는지(모바일 403 vs 데스크톱 451)에 대한 근본 원인도 완전히 규명되지 않았다 — 위 "배경" 섹션의 추정(서로 다른 Google 계정/실행 아이덴티티가 서로 다른 네트워크 경로를 탈 가능성)은 정보 제공 목적일 뿐, 이 수정이 해결을 보장하지는 않는다. `spec.md` §6 배제 항목 텍스트의 정식 개정 여부는 이 세션의 범위 밖이며, 향후 manager-spec을 통한 정식 SPEC 개정이 필요할 수 있다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 **요약**: SPEC-PRICE-001의 5개 마일스톤(M1~M5) + 보안 수정 1건이 모두 구현 완료됐다.

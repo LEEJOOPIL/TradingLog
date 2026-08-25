@@ -290,7 +290,12 @@ function setAssetSymbol(name, symbol) {
 }
 
 // ── 바이낸스 시세 조회 (웹앱용) ─────────────────────────
-// @MX:NOTE 이 프로젝트 최초의 외부 API 연동(data-api.binance.vision, 2026-08-25 지역 차단(451) 회피용 미러로 전환 — 실사용자 실측으로 확인됨) — muteHttpExceptions 필수(research.md §2.4, §4)
+// @MX:NOTE 이 프로젝트 최초의 외부 API 연동 — 듀얼호스트 순차 재시도(2026-08-25, 실사용자 실측으로 확인됨).
+// @MX:NOTE data-api.binance.vision을 데스크톱에서 우선 사용했으나 동일 사용자의 Android Chrome 세션에서
+// @MX:NOTE 지속적으로 403이 재현되었고(재시도로 해소되지 않음), api.binance.com은 이 실행 컨텍스트에서 451(지역 차단)이었다.
+// @MX:NOTE 두 호스트를 순서대로 시도하도록 확장 — spec.md §6 "대체 호스트 자동 폴백 제외" 배제 항목을
+// @MX:NOTE 사용자가 실측 트러블슈팅 중 명시적으로 승인하여 재정의함(progress.md 2026-08-25 항목 참조).
+// @MX:NOTE muteHttpExceptions 필수(research.md §2.4, §4)
 function fetchBinancePrice(cat) {
   const rows = readAssetRows_();
   let symbol = '';
@@ -304,43 +309,59 @@ function fetchBinancePrice(cat) {
     return JSON.stringify({ error: '심볼이 등록되지 않았습니다' });
   }
 
-  const url = 'https://data-api.binance.vision/api/v3/ticker/price?symbol=' + encodeURIComponent(symbol);
+  const hosts = ['https://data-api.binance.vision', 'https://api.binance.com'];
+  let lastResult = null;
+  for (let h = 0; h < hosts.length; h++) {
+    lastResult = tryBinanceHost_(hosts[h], symbol);
+    if (!lastResult.error) return JSON.stringify(lastResult);
+  }
+  // 두 호스트 모두 실패 — 마지막(두 번째) 시도의 오류를 반환
+  return JSON.stringify(lastResult);
+}
+
+// ── 바이낸스 단일 호스트 조회 시도 (내부 헬퍼) ───────────
+// @MX:NOTE fetchBinancePrice의 듀얼호스트 루프에서 호출 — 성공 시 {price, symbol}, 실패 시 {error} 반환(JSON 문자열이 아닌 순수 객체)
+function tryBinanceHost_(host, symbol) {
+  const url = host + '/api/v3/ticker/price?symbol=' + encodeURIComponent(symbol);
 
   let res;
   try {
     res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
   } catch (e) {
-    return JSON.stringify({ error: '네트워크 오류' });
+    return { error: '네트워크 오류' };
   }
 
   const code = res.getResponseCode();
-  if (code === 400) return JSON.stringify({ error: '심볼을 찾을 수 없습니다' });
-  if (code === 429) return JSON.stringify({ error: '요청이 많습니다. 잠시 후 다시 시도하세요' });
-  if (code === 418) return JSON.stringify({ error: '일시적으로 조회가 차단되었습니다' });
-  if (code === 451) return JSON.stringify({ error: '이 지역에서 조회할 수 없습니다' });
-  if (code !== 200) return JSON.stringify({ error: '조회 중 오류가 발생했습니다 (코드: ' + code + ')' });
+  if (code === 400) return { error: '심볼을 찾을 수 없습니다' };
+  if (code === 429) return { error: '요청이 많습니다. 잠시 후 다시 시도하세요' };
+  if (code === 418) return { error: '일시적으로 조회가 차단되었습니다' };
+  if (code === 451) return { error: '이 지역에서 조회할 수 없습니다' };
+  if (code !== 200) return { error: '조회 중 오류가 발생했습니다 (코드: ' + code + ')' };
 
   let parsed;
   try {
     parsed = JSON.parse(res.getContentText());
   } catch (e) {
-    return JSON.stringify({ error: '응답 형식 오류' });
+    return { error: '응답 형식 오류' };
   }
 
   const raw = parsed.price;
   const parsedPrice = parseFloat(raw);
   if (!isFinite(parsedPrice)) {
-    return JSON.stringify({ error: '가격 형식 오류' });
+    return { error: '가격 형식 오류' };
   }
 
   // 소수점 둘째 자리 반올림 (research.md §7.3 — 절반 지점 정확도 목적이 아니라 명세 정의된 단일 연산이기 때문)
   const rounded = Number(parseFloat(raw).toFixed(2));
   if (rounded === 0 && parsedPrice > 0) {
-    // 0 붕괴 가드 (REQ-024) — 1센트 미만 자산을 조용히 0으로 채우지 않는다
-    return JSON.stringify({ error: '가격이 너무 작아 표시할 수 없습니다' });
+    // 0 붕괴 가드 (REQ-024) — 1센트 미만 자산을 조용히 0으로 채우지 않는다.
+    // 이는 호스트 가용성 문제가 아니라 자산 자체의 가격 데이터 특성이므로 두 번째 호스트도 동일하게
+    // 실패할 가능성이 높지만, 별도 분기 없이 동일한 에러 객체 형태로 반환한다(단순성 우선 — 최악의 경우
+    // HTTP 호출 1회가 낭비될 뿐 동작은 정확하다).
+    return { error: '가격이 너무 작아 표시할 수 없습니다' };
   }
 
-  return JSON.stringify({ price: rounded, symbol: symbol });
+  return { price: rounded, symbol: symbol };
 }
 
 // ── B열 드롭다운 갱신 (내부 헬퍼) ──────────────────────
