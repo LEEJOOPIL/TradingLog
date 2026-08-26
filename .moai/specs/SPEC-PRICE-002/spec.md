@@ -2,7 +2,7 @@
 id: SPEC-PRICE-002
 title: "금·은 현물 시세 조회 버튼 (gold-api.com 연동)"
 version: "1.0.0"
-status: in-progress
+status: completed
 created: "2026-08-25"
 updated: "2026-08-26"
 author: pilsogood

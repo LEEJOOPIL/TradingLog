@@ -3,9 +3,9 @@
 | 항목 | 값 |
 |------|-----|
 | SPEC ID | SPEC-PRICE-002 |
-| 상태 | in-progress |
+| 상태 | completed |
 | Tier | L (spec.md + plan.md + acceptance.md + research.md — 2026-08-26 M→L 재분류, design.md는 UI-surface 휴리스틱상 불필요로 판단해 미생성. 근거: "Tier 재분류" 절 참조) |
-| 현재 단계 | run (진행 중) |
+| 현재 단계 | sync (완료) |
 
 ## §E.1 Plan-phase Audit-Ready Signal
 
@@ -281,3 +281,28 @@ m1_to_m5_commit_strategy: 단일 델타 커밋(워크트리 격리 제약으로 
 M1~M5 전 마일스톤 구현 완료. AC 18건 중 16건 코드-리뷰 PASS, 2건(AC-009 실기 필수, AC-015 sync-phase 소유) DEFERRED — DEFERRED 0건은 아니지만 실패(FAIL)는 0건이다. M6(문서 갱신)은 plan.md §H 소유권 경계에 따라 sync-phase manager-docs 범위로 이 델타에서 의도적으로 제외했다.
 
 **run_commit_sha 플레이스홀더 안내**: 이 커밋 자체가 자신의 SHA를 미리 알 수 없으므로(spec-frontmatter-schema.md § SHA placeholder backfill exemption), 위 값은 커밋 전에 기록한 플레이스홀더다. 실제 커밋 SHA는 §E.6에 기록되며, 후속 backfill 커밋에서 이 필드에 반영되어야 한다(이번 델타 세션에서 backfill까지 완료할 경우 아래에 실제 SHA를 추가로 기록한다).
+
+## §E.4 Sync-phase Audit-Ready Signal
+
+**문서 갱신 (REQ-024)**:
+
+| 파일 | 절 | 갱신 내용 |
+|------|-----|-----------|
+| `CLAUDE.md` | 기술 스택 §"가격 소스" | 기존 바이낸스 조회 문장 아래에 "금·은은 바이낸스에 현물 페어가 없어 별도로 자산에 금속시세 심볼(`XAU`/`XAG`)이 등록되어 있으면 동일한 '값 가져오기' 버튼으로 gold-api.com 시세를 조회한다(SPEC-PRICE-002)" 1줄 추가. 이 조회도 브라우저 `fetch()` 직접 수행이며 Apps Script 서버를 거치지 않음을 명시 |
+| `.moai/project/tech.md` | 플랫폼 표 "가격 소스" 행 | "바이낸스 현물가 조회(보조, 심볼 등록 자산만)" 뒤에 "+ 금·은 gold-api.com 현물시세 조회(보조, 금속시세 심볼 등록 자산만)"를 추가하고, 비고란에 "금·은은 바이낸스에 현물 페어가 없어 gold-api.com을 별도 연동(SPEC-PRICE-002)" 1줄 추가 |
+
+**사용자 실기 검증 (end-user live verification)**: 이 sync 세션에서 사용자가 배포된 웹앱에서 금·은 자산 행의 "값 가져오기" 버튼을 직접 클릭해 gold-api.com 조회가 정상 동작함을 확인했다고 알려왔다 — AC-009(배포된 웹앱 실기 확인, §D.2 DEFERRED 항목)를 해소하는 신호다. 이 확인은 **사용자의 실제 배포 환경에서의 육안 관찰이며, 이 sync 세션이 자동화 도구로 재현·기록한 것이 아니다** — 대화 맥락에 근거한 사용자 보고를 그대로 기록한다(코드 리뷰로 대체하지 않음, verification-claim-integrity.md §1.1 대응).
+
+`CHANGELOG.md`/`README.md`는 이 저장소에 존재하지 않으며(1인 개인 프로젝트), REQ-024는 문서 갱신만 요구하고 신규 문서 생성을 요구하지 않으므로 신설하지 않았다.
+
+**SPEC 전체 여정 요약**: SPEC-PRICE-002는 SPEC-PRICE-001의 클라이언트 직접 호출 아키텍처(바이낸스)를 재사용해, 별도 외부 API(gold-api.com)로 금·은 현물시세를 조회하는 기능을 처음부터 클라이언트 `fetch()` 방식으로 설계·구현했다. plan-audit 재분류(Tier M → L, REQ 24건/AC 18건이 Tier M 상한 초과)를 거쳐 research.md가 신설됐고, `AssetTypes` 시트에 B열(바이낸스 심볼)과 분리된 신규 C열(금속시세 심볼)을 추가해 두 심볼 종류를 독립적으로 관리하도록 했다. M1~M5 구현이 워크트리 격리 제약으로 단일 델타 커밋(`868d952`)에 묶여 `origin/main`에 반영됐으며, AC 18건 중 16건이 코드 리뷰로 PASS, 2건(AC-009 실기 필수, AC-015 sync-phase 소유)이 DEFERRED였다. 이 sync 단계에서 REQ-024(문서 갱신)를 마무리하고, 사용자의 배포된 웹앱 실기 확인(금·은 조회 성공)으로 AC-009를 해소하며, 3-phase close(`in-progress → implemented → completed`)를 수행한다.
+
+sync_complete_at: 2026-08-26
+sync_commit_sha: pending-backfill-sync
+sync_status: audit-ready
+changelog_entry_position: N/A — CHANGELOG.md/README.md 없음(1인 개인 프로젝트, REQ-024는 문서 갱신만 요구하며 신규 문서 생성을 요구하지 않음)
+frontmatter_status_transitions.spec_md: in-progress → implemented → completed (이 sync 커밋에서 병합 수행)
+b12_self_test_a: N/A — CHANGELOG.md 없음(grep 대상 파일 부재)
+b12_self_test_b: N/A — CHANGELOG.md 없음(AC 카운트 비교 대상 없음; acceptance.md AC 수는 18건, §D.2 표 기준)
+b12_self_test_c: PASS — `CLAUDE.md`(경로 존재 확인), `.moai/project/tech.md`(경로 존재 확인) 두 파일 모두 이 sync 커밋 전 `Read`로 실제 내용 확인 후 편집
+canary_compliance_check: N/A — 이 SPEC은 향후 정책을 스스로 테스트하는 성격이 아님
