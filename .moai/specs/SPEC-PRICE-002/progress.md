@@ -298,7 +298,7 @@ M1~M5 전 마일스톤 구현 완료. AC 18건 중 16건 코드-리뷰 PASS, 2�
 **SPEC 전체 여정 요약**: SPEC-PRICE-002는 SPEC-PRICE-001의 클라이언트 직접 호출 아키텍처(바이낸스)를 재사용해, 별도 외부 API(gold-api.com)로 금·은 현물시세를 조회하는 기능을 처음부터 클라이언트 `fetch()` 방식으로 설계·구현했다. plan-audit 재분류(Tier M → L, REQ 24건/AC 18건이 Tier M 상한 초과)를 거쳐 research.md가 신설됐고, `AssetTypes` 시트에 B열(바이낸스 심볼)과 분리된 신규 C열(금속시세 심볼)을 추가해 두 심볼 종류를 독립적으로 관리하도록 했다. M1~M5 구현이 워크트리 격리 제약으로 단일 델타 커밋(`868d952`)에 묶여 `origin/main`에 반영됐으며, AC 18건 중 16건이 코드 리뷰로 PASS, 2건(AC-009 실기 필수, AC-015 sync-phase 소유)이 DEFERRED였다. 이 sync 단계에서 REQ-024(문서 갱신)를 마무리하고, 사용자의 배포된 웹앱 실기 확인(금·은 조회 성공)으로 AC-009를 해소하며, 3-phase close(`in-progress → implemented → completed`)를 수행한다.
 
 sync_complete_at: 2026-08-26
-sync_commit_sha: pending-backfill-sync
+sync_commit_sha: 86d7d2a
 sync_status: audit-ready
 changelog_entry_position: N/A — CHANGELOG.md/README.md 없음(1인 개인 프로젝트, REQ-024는 문서 갱신만 요구하며 신규 문서 생성을 요구하지 않음)
 frontmatter_status_transitions.spec_md: in-progress → implemented → completed (이 sync 커밋에서 병합 수행)
