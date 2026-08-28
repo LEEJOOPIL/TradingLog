@@ -324,6 +324,37 @@ function setMetalSymbol(name, symbol) {
   return JSON.stringify({ error: '존재하지 않는 자산입니다.' });
 }
 
+// ── 심볼 등록/수정 — 자동 판별 단일 진입점 (웹앱용, SPEC-ASSET-002) ────
+// @MX:NOTE updateAssetDropdown_() 의도적으로 미호출 — 심볼(B·C열) 수정은 자산 목록(A열)
+// 자체를 바꾸지 않으므로 드롭다운 갱신 대상이 아니다(setAssetSymbol·setMetalSymbol과 동일한 근거, REQ-008)
+function setSymbol(name, symbol) {
+  const trimmedName = String(name).trim();
+  const normalized  = String(symbol == null ? '' : symbol).trim().toUpperCase();
+
+  // XAU/XAG 완전 일치만 금속시세로 판별한다 — 부분 일치를 쓰면 XAUUSDT 같은
+  // 실제 바이낸스 페어를 금속으로 오판한다(plan.md §B 이슈 3)
+  const isMetal      = (normalized === 'XAU' || normalized === 'XAG');
+  const binanceValue = (!normalized || isMetal) ? '' : normalized;
+  const metalValue   = isMetal ? normalized : '';
+
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ASSET_SHEET_NAME);
+  if (sheet) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      const vals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < vals.length; i++) {
+        if (String(vals[i][0]).trim() === trimmedName) {
+          // B·C를 setValues 1회로 함께 기록 — 열별 2회 쓰기는 중간 상태를 남긴다(REQ-007)
+          sheet.getRange(i + 2, 2, 1, 2).setValues([[binanceValue, metalValue]]);
+          return getPortfolioData();
+        }
+      }
+    }
+  }
+  return JSON.stringify({ error: '존재하지 않는 자산입니다.' });
+}
+
 // ── B열 드롭다운 갱신 (내부 헬퍼) ──────────────────────
 // @MX:ANCHOR fan_in=3 — addAssetType/deleteAssetType/initSheet 모두 의존
 function updateAssetDropdown_() {
