@@ -955,13 +955,9 @@
           '<button class="asset-del" onclick="deleteAsset(\'' + escJs(a) + '\')" title="삭제">×</button>' +
         '</span>' +
         '<input type="text" class="symbol-input" id="sym-' + escAttr(a) + '" ' +
-          'value="' + escAttr(symbol) + '" placeholder="바이낸스 심볼 (예: BTCUSDT)">' +
-        '<button class="btn btn-save-symbol" onclick="saveAssetSymbol(\'' + escJs(a) + '\')">저장</button>' +
+          'value="' + escAttr(symbol || metalSymbol) + '" placeholder="심볼 (예: BTCUSDT, XAU, XAG)">' +
+        '<button class="btn btn-save-symbol" onclick="saveSymbol(\'' + escJs(a) + '\')">저장</button>' +
         '<span id="sym-msg-' + escAttr(a) + '" class="symbol-msg"></span>' +
-        '<input type="text" class="symbol-input" id="metalsym-' + escAttr(a) + '" ' +
-          'value="' + escAttr(metalSymbol) + '" placeholder="금속시세 심볼 (예: XAU)">' +
-        '<button class="btn btn-save-symbol" onclick="saveMetalSymbol(\'' + escJs(a) + '\')">저장</button>' +
-        '<span id="metalsym-msg-' + escAttr(a) + '" class="symbol-msg"></span>' +
       '</div>';
     }).join('');
 
@@ -973,8 +969,8 @@
       '</div>';
   }
 
-  /* ── 자산 심볼 저장 ── */
-  function saveAssetSymbol(name) {
+  /* ── 자산 심볼 저장 — 종류는 서버가 판별한다 (SPEC-ASSET-002) ── */
+  function saveSymbol(name) {
     var input = document.getElementById('sym-' + name);
     if (!input) return;
     var symbolValue = input.value.trim();
@@ -997,34 +993,7 @@
         if (btn) { btn.disabled = false; btn.textContent = '저장'; }
         if (msg) msg.textContent = '저장 실패: ' + e.message;
       })
-      .setAssetSymbol(name, symbolValue);
-  }
-
-  /* ── 금속시세 심볼 저장 (SPEC-PRICE-002) ── */
-  function saveMetalSymbol(name) {
-    var input = document.getElementById('metalsym-' + name);
-    if (!input) return;
-    var symbolValue = input.value.trim();
-    var msg = document.getElementById('metalsym-msg-' + name);
-    if (msg) msg.textContent = '';
-    var btn = input.nextElementSibling;
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-
-    google.script.run
-      .withSuccessHandler(function(json) {
-        var d = JSON.parse(json);
-        if (d.error) {
-          if (btn) { btn.disabled = false; btn.textContent = '저장'; }
-          if (msg) msg.textContent = d.error;
-          return;
-        }
-        onData(json);
-      })
-      .withFailureHandler(function(e) {
-        if (btn) { btn.disabled = false; btn.textContent = '저장'; }
-        if (msg) msg.textContent = '저장 실패: ' + e.message;
-      })
-      .setMetalSymbol(name, symbolValue);
+      .setSymbol(name, symbolValue);
   }
 
   /* ── 모달 자산구분 드롭다운 동적 갱신 ── */
