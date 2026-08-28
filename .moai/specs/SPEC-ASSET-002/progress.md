@@ -139,7 +139,7 @@ REQ-010 초기 표시값과 "값 가져오기" 노출 조건이 아직 이 맵�
 
 ```yaml
 run_complete_at: "2026-08-28"
-run_commit_shas: ["1382210", "39b62b2", "pending-backfill-M4"]
+run_commit_shas: ["1382210", "39b62b2", "2e2baf6"]
 run_status: PASS-WITH-DEBT
 verification_method: trace-and-diff-only
 ac_pass_count: 12
