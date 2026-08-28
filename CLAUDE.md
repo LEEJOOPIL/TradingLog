@@ -66,7 +66,7 @@ Google Sheets + Google Apps Script 기반 투자 기록 관리 앱.
 
 | 파일 | 역할 |
 |------|------|
-| `Code.gs` | 상수 정의, onEdit 트리거, doGet(웹앱 진입), getPortfolioData, writeRowData, addRow, updateRow, deleteRow, setAssetPrice, updateAllFormulas, getAssetTypes, readAssetRows_, addAssetType, deleteAssetType, setAssetSymbol, updateAssetDropdown_, countAssetUsage_ |
+| `Code.gs` | 상수 정의, onEdit 트리거, doGet(웹앱 진입), getPortfolioData, writeRowData, addRow, updateRow, deleteRow, setAssetPrice, updateAllFormulas, getAssetTypes, readAssetRows_, addAssetType, deleteAssetType, setSymbol, setAssetSymbol, setMetalSymbol, updateAssetDropdown_, countAssetUsage_ |
 | `PriceFetcher.gs` | setPriceAndRateFormula (수식·포맷 설정), columnToLetter |
 | `Menu.gs` | onOpen (메뉴 등록), initSheet (시트 초기화 — AssetTypes 시트 생성 포함) |
 | `Utils.gs` | getDataSheet, getLastDataRow (B열 일괄 읽기로 API 1회 최소화), ensureAssetSymbolHeader_, initAssetTypesSheet_ |
@@ -85,7 +85,7 @@ Google Sheets + Google Apps Script 기반 투자 기록 관리 앱.
 |------|------|
 | 요약 카드 | 총 매입금액·총 평가금액·총 수익금액·종합 수익률 실시간 표시 |
 | 자산 관리 패널 | 자산 종류 추가·삭제 — 사용 중인 자산 삭제 시 경고 확인 표시. 추가 즉시 드롭다운·현재가 패널 반영 |
-| 현재가 설정 패널 | 자산 목록 전체 표시 (매입 행 없는 자산 포함) → "적용" 클릭 시 해당 자산 전체 F열 일괄 갱신. 바이낸스 심볼이 등록된 자산은 "값 가져오기" 버튼으로 시세를 입력 필드에만 채워 넣을 수 있다(시트 미반영, "적용"과 분리된 2단계 확인 흐름) |
+| 현재가 설정 패널 | 자산 목록 전체 표시 (매입 행 없는 자산 포함) → "적용" 클릭 시 해당 자산 전체 F열 일괄 갱신. 심볼이 등록된 자산은 "값 가져오기" 버튼으로 시세를 입력 필드에만 채워 넣을 수 있다(시트 미반영, "적용"과 분리된 2단계 확인 흐름) |
 | 데이터 테이블 | 전체 행 목록 — 수정·삭제 버튼 포함 |
 | 새 항목 추가 | "+ 새 항목" 버튼 → 모달에서 날짜·자산구분(동적 드롭다운)·매입가·수량·현재가·손절가 입력 |
 | 낙관적 렌더링 | 저장·삭제·현재가 적용 시 서버 응답 전에 UI 즉시 반영, 백그라운드에서 동기화 |
@@ -108,7 +108,7 @@ Google Sheets + Google Apps Script 기반 투자 기록 관리 앱.
 
 > 사용자가 추가한 자산(예: XRP)은 웹앱 자산 관리 패널의 "자산 종류 추가" 입력 필드로 등록하고, 현재가 설정 패널에서 동일하게 관리한다.
 
-> 자산은 선택적으로 바이낸스 심볼(예: `BTCUSDT`)을 가질 수 있다. `AssetTypes` 시트 B열에 저장되며, 자산 관리 패널의 인라인 심볼 입력 필드로 등록·수정한다. 심볼이 등록된 자산만 현재가 설정 패널에 "값 가져오기" 버튼이 나타난다 — 금·은처럼 바이낸스에 현물 페어가 없는 자산은 심볼 없이 수동 입력만 사용한다.
+> 자산은 선택적으로 심볼을 하나 가질 수 있다. 자산 관리 패널의 인라인 입력 필드 **하나**에 심볼을 넣고 저장하면, 서버(`setSymbol`)가 값의 형태를 보고 종류를 자동으로 판별한다 — `XAU`·`XAG`(대소문자 무시, 완전 일치)는 금속시세 심볼로 `AssetTypes` C열에, 그 외 값(예: `BTCUSDT`)은 바이낸스 심볼로 B열에 기록되며 반대쪽 열은 비워진다. 입력을 비우고 저장하면 두 열이 모두 비워진다. 저장되는 값은 앞뒤 공백이 제거되고 대문자로 정규화된다. 심볼이 등록된 자산만 현재가 설정 패널에 "값 가져오기" 버튼이 나타난다.
 
 ## 성능 설계
 
